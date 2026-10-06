@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LGU Employee Dashboard | WTOIS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="#">WTOIS LGU Portal</a>
+            <div class="d-flex">
+                <button class="btn btn-sm btn-outline-light" onclick="logout()">Secure Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4 px-4">
+        <h4 class="mb-4">Application Processing Queue</h4>
+        
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Ref Number</th>
+                                <th>Applicant ID</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Date Submitted</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="employeeQueueBody">
+                            <tr><td colspan="6" class="text-center">Loading queue...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/auth.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const auth = await checkAuthAndRoute();
+            if(auth) loadQueue();
+        });
+
+        async function loadQueue() {
+            const tbody = document.getElementById('employeeQueueBody');
+            
+            const { data, error } = await supabase
+                .from('applications')
+                .select('id, application_number, applicant_id, transaction_type, current_status, submitted_at')
+                .order('submitted_at', { ascending: false });
+
+            if (error) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-danger">Error: ${error.message}</td></tr>`;
+                return;
+            }
+
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center">Queue is empty.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.map(app => `
+                <tr>
+                    <td class="fw-bold">${app.application_number}</td>
+                    <td class="text-muted small" title="${app.applicant_id}">${app.applicant_id.substring(0,8)}...</td>
+                    <td><span class="badge bg-secondary">${app.transaction_type}</span></td>
+                    <td>${getStatusBadge(app.current_status)}</td>
+                    <td>${formatDate(app.submitted_at)}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary">Review Docs</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+    </script>
+</body>
+</html>

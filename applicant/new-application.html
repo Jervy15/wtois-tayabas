@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New MTOP Application | WTOIS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-primary mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="dashboard.html">← Back to Dashboard</a>
+        </div>
+    </nav>
+
+    <div class="container mb-5">
+        <div id="eligibilityAlert" class="alert alert-danger d-none">
+            <h4 class="alert-heading">Transaction Limit Reached</h4>
+            <p>You already have an active MTOP or Renewal application currently being processed. You must wait for it to be completed, rejected, or cancelled before submitting a new one.</p>
+            <a href="dashboard.html" class="btn btn-danger mt-2">Return to Dashboard</a>
+        </div>
+
+        <div class="card shadow-sm" id="applicationCard" style="display: none;">
+            <div class="card-header bg-white border-bottom py-3">
+                <h4 class="mb-0 text-success">New MTOP Application</h4>
+                <p class="text-muted small mb-0 mt-1">Please fill in vehicle details and upload official documents.</p>
+            </div>
+            <div class="card-body p-4">
+                <form id="newAppForm">
+                    <h5 class="border-bottom pb-2 mb-3">Vehicle Details</h5>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Plate Number <span class="text-danger">*</span></label>
+                            <input type="text" id="plateNumber" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Make <span class="text-danger">*</span></label>
+                            <input type="text" id="make" class="form-control" placeholder="e.g. Honda, Kawasaki" required>
+                        </div>
+                    </div>
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <label class="form-label">Model</label>
+                            <input type="text" id="model" class="form-control">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Engine Number <span class="text-danger">*</span></label>
+                            <input type="text" id="engineNumber" class="form-control" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Chassis Number <span class="text-danger">*</span></label>
+                            <input type="text" id="chassisNumber" class="form-control" required>
+                        </div>
+                    </div>
+
+                    <h5 class="border-bottom pb-2 mb-3">Required Documents (PDF, JPG, PNG)</h5>
+                    <div class="alert alert-info small">Documents will be securely verified by the LGU office. Maximum file size is 5MB per document.</div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">1. Certificate of Registration (OR/CR) <span class="text-danger">*</span></label>
+                        <input type="file" id="docORCR" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">2. Current Year Cedula <span class="text-danger">*</span></label>
+                        <input type="file" id="docCedula" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">3. Government-Issued ID <span class="text-danger">*</span></label>
+                        <input type="file" id="docGovID" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">4. COMELEC Certification <span class="text-danger">*</span></label>
+                        <input type="file" id="docComelec" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                    </div>
+
+                    <div id="alertBox" class="alert d-none"></div>
+                    <button type="submit" id="btnSubmitApp" class="btn btn-success btn-lg w-100">Submit Application</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/auth.js"></script>
+    <script>
+        let currentUser = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const auth = await checkAuthAndRoute();
+            if(!auth) return;
+            currentUser = auth.session.user;
+
+            // Enforce frontend 1-transaction rule
+            const { data: activeApps, error } = await supabase
+                .from('applications')
+                .select('id')
+                .eq('applicant_id', currentUser.id)
+                .in('transaction_type', ['NEW', 'RENEWAL'])
+                .not('current_status', 'in', '("COMPLETED","REJECTED","CANCELLED")');
+
+            if (activeApps && activeApps.length > 0) {
+                document.getElementById('eligibilityAlert').classList.remove('d-none');
+            } else {
+                document.getElementById('applicationCard').style.display = 'block';
+            }
+        });
+
+        document.getElementById('newAppForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showLoader('btnSubmitApp', 'Registering Vehicle & Uploading Secure Documents...');
+            const alertBox = document.getElementById('alertBox');
+            alertBox.className = 'alert d-none';
+            
+            try {
+                const { data: vehicle, error: vehicleErr } = await supabase.from('vehicles').insert([{
+                    applicant_id: currentUser.id,
+                    plate_number: document.getElementById('plateNumber').value,
+                    make: document.getElementById('make').value,
+                    model: document.getElementById('model').value,
+                    engine_number: document.getElementById('engineNumber').value,
+                    chassis_number: document.getElementById('chassisNumber').value
+                }]).select().single();
+
+                if (vehicleErr) throw new Error("Vehicle Registration Failed: " + vehicleErr.message);
+
+                const { data: appId, error: appErr } = await supabase.rpc('create_new_application', {
+                    p_applicant_id: currentUser.id,
+                    p_vehicle_id: vehicle.id,
+                    p_transaction_type: 'NEW'
+                });
+
+                if (appErr) throw new Error("Application Creation Failed: " + appErr.message);
+
+                const uploadDoc = async (inputId, docType) => {
+                    const fileInput = document.getElementById(inputId);
+                    const file = fileInput.files[0];
+                    if (!file) return;
+                    
+                    if(file.size > 5 * 1024 * 1024) {
+                        throw new Error(`File ${docType} exceeds 5MB limit.`);
+                    }
+
+                    const fileExt = file.name.split('.').pop();
+                    const fileName = `${crypto.randomUUID()}.${fileExt}`;
+                    const filePath = `${currentUser.id}/${appId}/${fileName}`;
+
+                    const { error: uploadErr } = await supabase.storage.from('application-documents').upload(filePath, file);
+                    if (uploadErr) throw new Error(`Upload Failed for ${docType}: ` + uploadErr.message);
+
+                    const { error: dbErr } = await supabase.from('application_documents').insert([{
+                        application_id: appId, document_type: docType, storage_path: filePath,
+                        original_file_name: file.name, mime_type: file.type, file_size: file.size, uploaded_by: currentUser.id
+                    }]);
+                    if (dbErr) throw new Error(`Database record failed for ${docType}`);
+                };
+
+                await uploadDoc('docORCR', 'OR/CR');
+                await uploadDoc('docCedula', 'Cedula');
+                await uploadDoc('docGovID', 'Government ID');
+                await uploadDoc('docComelec', 'COMELEC Certification');
+
+                await supabase.from('applications')
+                    .update({ current_status: 'SUBMITTED', submitted_at: new Date().toISOString() })
+                    .eq('id', appId);
+
+                await supabase.from('activity_logs').insert([{
+                    actor_user_id: currentUser.id, action: 'SUBMITTED_NEW_MTOP', module: 'APPLICATIONS', target_id: appId
+                }]);
+
+                alertBox.className = 'alert alert-success d-block';
+                alertBox.textContent = 'Application successfully submitted! Redirecting to dashboard...';
+                
+                setTimeout(() => window.location.href = 'dashboard.html', 2000);
+
+            } catch (err) {
+                alertBox.className = 'alert alert-danger d-block';
+                alertBox.textContent = err.message;
+                hideLoader('btnSubmitApp');
+            }
+        });
+    </script>
+</body>
+</html>

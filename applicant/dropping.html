@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drop MTOP | WTOIS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-dark bg-primary mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="dashboard.html">← Back to Dashboard</a>
+        </div>
+    </nav>
+
+    <div class="container mb-5">
+        <div class="card shadow-sm border-warning">
+            <div class="card-header bg-warning py-3">
+                <h4 class="mb-0 text-dark">Drop MTOP Franchise</h4>
+            </div>
+            <div class="card-body p-4">
+                <form id="droppingForm">
+                    <div class="mb-3">
+                        <label class="form-label">Plate Number of Franchise to Drop <span class="text-danger">*</span></label>
+                        <input type="text" id="plateNumber" class="form-control" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label">Reason for Dropping <span class="text-danger">*</span></label>
+                        <select id="dropReason" class="form-select" required>
+                            <option value="">Select a reason...</option>
+                            <option value="Change of Owner">Change of Owner</option>
+                            <option value="Change of Motor">Change of Motor</option>
+                            <option value="Voluntary Surrender">Voluntary Surrender</option>
+                        </select>
+                    </div>
+
+                    <h5 class="border-bottom pb-2 mb-3">Required Documents</h5>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">1. Certificate of Registration (OR/CR) <span class="text-danger">*</span></label>
+                        <input type="file" id="docORCR" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">2. Government-Issued ID <span class="text-danger">*</span></label>
+                        <input type="file" id="docGovID" class="form-control" required>
+                    </div>
+                    <div class="mb-4 alert alert-warning">
+                        <strong>Important:</strong> You must physically surrender your Franchise Plate to the TFRB office after submitting this request.
+                    </div>
+
+                    <div id="alertBox" class="alert d-none"></div>
+                    <button type="submit" id="btnSubmitApp" class="btn btn-warning btn-lg w-100 fw-bold">Submit Dropping Request</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/auth.js"></script>
+    <script>
+        let currentUser = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const auth = await checkAuthAndRoute();
+            if(auth) currentUser = auth.session.user;
+        });
+
+        document.getElementById('droppingForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showLoader('btnSubmitApp', 'Processing Request...');
+            const alertBox = document.getElementById('alertBox');
+            
+            try {
+                const { data: vehicle, error: vehicleErr } = await supabase.from('vehicles').insert([{
+                    applicant_id: currentUser.id,
+                    plate_number: document.getElementById('plateNumber').value,
+                    status: 'DROPPING_PENDING'
+                }]).select().single();
+
+                const { data: appId, error: appErr } = await supabase.rpc('create_new_application', {
+                    p_applicant_id: currentUser.id, p_vehicle_id: vehicle.id, p_transaction_type: 'DROPPING'
+                });
+
+                if (appErr) throw new Error(appErr.message);
+
+                const uploadDoc = async (inputId, docType) => {
+                    const file = document.getElementById(inputId).files[0];
+                    if (!file) return;
+                    const fileName = `${crypto.randomUUID()}.${file.name.split('.').pop()}`;
+                    const filePath = `${currentUser.id}/${appId}/${fileName}`;
+                    await supabase.storage.from('application-documents').upload(filePath, file);
+                    await supabase.from('application_documents').insert([{
+                        application_id: appId, document_type: docType, storage_path: filePath,
+                        original_file_name: file.name, uploaded_by: currentUser.id
+                    }]);
+                };
+
+                await uploadDoc('docORCR', 'OR/CR');
+                await uploadDoc('docGovID', 'Government ID');
+
+                await supabase.from('applications').update({ 
+                    current_status: 'SUBMITTED', 
+                    submitted_at: new Date().toISOString(),
+                    remarks: `Reason: ${document.getElementById('dropReason').value}`
+                }).eq('id', appId);
+
+                alertBox.className = 'alert alert-success d-block';
+                alertBox.textContent = 'Dropping request submitted successfully!';
+                setTimeout(() => window.location.href = 'dashboard.html', 1500);
+
+            } catch (err) {
+                alertBox.className = 'alert alert-danger d-block';
+                alertBox.textContent = err.message;
+                hideLoader('btnSubmitApp');
+            }
+        });
+    </script>
+</body>
+</html>
