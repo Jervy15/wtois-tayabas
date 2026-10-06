@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - WTOIS Tayabas City</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white text-center">
+                        <h4 class="mb-0">Applicant Registration</h4>
+                    </div>
+                    <div class="card-body p-4">
+                        <form id="registerForm">
+                            <div class="row mb-3">
+                                <div class="col">
+                                    <label class="form-label">First Name</label>
+                                    <input type="text" id="firstName" class="form-control" required>
+                                </div>
+                                <div class="col">
+                                    <label class="form-label">Last Name</label>
+                                    <input type="text" id="lastName" class="form-control" required>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Email Address</label>
+                                <input type="email" id="email" class="form-control" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Password</label>
+                                <input type="password" id="password" class="form-control" minlength="6" required>
+                            </div>
+                            <div id="alertBox" class="alert d-none"></div>
+                            <button type="submit" id="btnRegister" class="btn btn-primary w-100">Register</button>
+                        </form>
+                        <div class="text-center mt-3">
+                            <a href="login.html" class="text-decoration-none">Already have an account? Login here.</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/js/supabase.js"></script>
+    <script src="assets/js/utils.js"></script>
+    <script src="assets/js/auth.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', checkAuthAndRoute);
+        
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showLoader('btnRegister');
+            const alertBox = document.getElementById('alertBox');
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const firstName = document.getElementById('firstName').value;
+            const lastName = document.getElementById('lastName').value;
+
+            const { data, error } = await supabase.auth.signUp({
+                email: email,
+                password: password,
+                options: { data: { first_name: firstName, last_name: lastName } }
+            });
+
+            hideLoader('btnRegister');
+
+            if (error) {
+                alertBox.className = 'alert alert-danger d-block';
+                alertBox.textContent = error.message;
+            } else {
+                alertBox.className = 'alert alert-success d-block';
+                alertBox.textContent = 'Registration successful! You can now log in.';
+                document.getElementById('registerForm').reset();
+            }
+        });
+    </script>
+</body>
+</html>
