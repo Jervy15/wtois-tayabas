@@ -1,12 +1,19 @@
 // Core Authentication & Route Guard Module
+
+// Detect if running on GitHub Pages to inject the repository subfolder
+const BASE_PATH = window.location.hostname.includes('github.io') ? '/wtois-tayabas' : '';
+
 async function checkAuthAndRoute() {
     const { data: { session }, error } = await supabase.auth.getSession();
     const currentPath = window.location.pathname;
     
-    const isPublicPage = currentPath.includes('login.html') || currentPath.includes('register.html') || currentPath === '/' || currentPath.endsWith('wtois/');
+    const isPublicPage = currentPath.includes('login.html') || 
+                         currentPath.includes('register.html') || 
+                         currentPath === '/' || 
+                         currentPath === BASE_PATH + '/';
 
     if (!session && !isPublicPage) {
-        window.location.href = '/login.html';
+        window.location.href = BASE_PATH + '/login.html';
         return null;
     }
 
@@ -21,22 +28,22 @@ async function checkAuthAndRoute() {
         if (!profile || profile.account_status !== 'ACTIVE') {
             await supabase.auth.signOut();
             alert("Account inactive or not found.");
-            window.location.href = '/login.html';
+            window.location.href = BASE_PATH + '/login.html';
             return null;
         }
 
         // Enforce Portal Separation
         if (profile.account_type === 'APPLICANT' && currentPath.includes('/employee/')) {
-            window.location.href = '/applicant/dashboard.html';
+            window.location.href = BASE_PATH + '/applicant/dashboard.html';
         } else if (profile.account_type === 'EMPLOYEE' && currentPath.includes('/applicant/')) {
-            window.location.href = '/employee/dashboard.html';
+            window.location.href = BASE_PATH + '/employee/dashboard.html';
         }
 
         // Redirect away from login if already authenticated
         if (isPublicPage) {
             window.location.href = profile.account_type === 'APPLICANT' 
-                ? '/applicant/dashboard.html' 
-                : '/employee/dashboard.html';
+                ? BASE_PATH + '/applicant/dashboard.html' 
+                : BASE_PATH + '/employee/dashboard.html';
         }
         return { session, profile };
     }
@@ -45,5 +52,5 @@ async function checkAuthAndRoute() {
 
 async function logout() {
     await supabase.auth.signOut();
-    window.location.href = '/login.html';
+    window.location.href = BASE_PATH + '/login.html';
 }
