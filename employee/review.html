@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Review | WTOIS LGU Portal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="dashboard.html">← Back to Queue</a>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4 mb-5">
+        <div class="row">
+            <!-- Left Column: Details -->
+            <div class="col-md-7">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 text-primary">Application Details</h5>
+                        <div id="statusBadgeContainer"></div>
+                    </div>
+                    <div class="card-body" id="appDetailsContainer">
+                        <p class="text-center">Loading details...</p>
+                    </div>
+                </div>
+
+                <!-- LGU Action Panel -->
+                <div class="card shadow-sm border-primary">
+                    <div class="card-header bg-primary text-white py-3">
+                        <h6 class="mb-0">Stage Action: Document Verification</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-muted mb-3">Ensure all documents are marked as VERIFIED before advancing the application to the CTMO Inspection stage.</p>
+                        <button class="btn btn-success w-100" id="btnAdvanceStage" onclick="advanceApplication()">
+                            All Documents Verified - Forward to Inspection
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right Column: Documents Validation -->
+            <div class="col-md-5">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0">Document Verification</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <ul class="list-group list-group-flush" id="documentsList">
+                            <li class="list-group-item text-center text-muted">Loading documents...</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Reason Modal -->
+    <div class="modal fade" id="rejectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Reject Document</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label">Reason for Rejection <span class="text-danger">*</span></label>
+                    <textarea id="rejectReason" class="form-control" rows="3" placeholder="e.g., Blurred image, expired ID..."></textarea>
+                    <input type="hidden" id="rejectDocId">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" onclick="submitRejection()">Confirm Rejection</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/auth.js"></script>
+    <script>
+        let currentAppId = new URLSearchParams(window.location.search).get('id');
+        let rejectModalInstance;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const auth = await checkAuthAndRoute();
+            if(!auth) return;
+            
+            rejectModalInstance = new bootstrap.Modal(document.getElementById('rejectModal'));
+            
+            if (!currentAppId) {
+                document.getElementById('appDetailsContainer').innerHTML = '<div class="alert alert-danger">No application ID provided.</div>';
+                return;
+            }
+
+            loadApplicationDetails();
+            loadDocuments();
+        });
+
+        async function loadApplicationDetails() {
+            const { data, error } = await supabase
+                .from('applications')
+                .select(`*, vehicles ( plate_number, make, model, engine_number, chassis_number )`)
+                .eq('id', currentAppId)
+                .single();
+
+            if (error || !data) return;
+
+            document.getElementById('statusBadgeContainer').innerHTML = getStatusBadge(data.current_status);
+            
+            document.getElementById('appDetailsContainer').innerHTML = `
+                <div class="row mb-2"><div class="col-sm-4 fw-bold">Ref Number</div><div class="col-sm-8">${data.application_number}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 fw-bold">Type</div><div class="col-sm-8">${data.transaction_type}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 fw-bold">Submitted</div><div class="col-sm-8">${formatDate(data.submitted_at)}</div></div>
+                <hr>
+                <h6 class="fw-bold text-secondary">Vehicle Information</h6>
+                <div class="row mb-2"><div class="col-sm-4 fw-bold">Plate Number</div><div class="col-sm-8">${data.vehicles.plate_number}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 fw-bold">Make/Model</div><div class="col-sm-8">${data.vehicles.make} ${data.vehicles.model || ''}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 fw-bold">Engine/Chassis</div><div class="col-sm-8">${data.vehicles.engine_number} / ${data.vehicles.chassis_number}</div></div>
+            `;
+        }
+
+        async function loadDocuments() {
+            const { data, error } = await supabase.from('application_documents').select('*').eq('application_id', currentAppId);
+            const docList = document.getElementById('documentsList');
+            
+            if (error || data.length === 0) {
+                docList.innerHTML = '<li class="list-group-item text-muted">No documents found.</li>';
+                return;
+            }
+
+            docList.innerHTML = data.map(doc => {
+                let badgeColor = doc.verification_status === 'VERIFIED' ? 'success' : doc.verification_status === 'REJECTED' ? 'danger' : 'warning';
+                
+                // Fetch secure temporary URL to view the private file
+                const { data: fileUrl } = supabase.storage.from('application-documents').getPublicUrl(doc.storage_path);
+
+                return `
+                <li class="list-group-item py-3">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="overflow-hidden pe-2">
+                            <div class="fw-bold">${doc.document_type}</div>
+                            <div class="text-muted small text-break"><a href="${fileUrl.publicUrl}" target="_blank">View File ↗</a></div>
+                        </div>
+                        <span class="badge bg-${badgeColor} rounded-pill flex-shrink-0">${doc.verification_status}</span>
+                    </div>
+                    
+                    ${(doc.verification_status === 'PENDING' || doc.verification_status === 'SUBMITTED') ? `
+                    <div class="mt-2 d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-success flex-grow-1" onclick="verifyDoc('${doc.id}')">Verify</button>
+                        <button class="btn btn-sm btn-outline-danger flex-grow-1" onclick="openRejectModal('${doc.id}')">Reject</button>
+                    </div>` : ''}
+
+                    ${doc.rejection_reason ? `<div class="text-danger small mt-2 bg-danger bg-opacity-10 p-2 rounded"><strong>Reason:</strong> ${doc.rejection_reason}</div>` : ''}
+                </li>
+                `;
+            }).join('');
+        }
+
+        async function verifyDoc(docId) {
+            if(!confirm("Mark this document as verified?")) return;
+            await supabase.from('application_documents').update({ verification_status: 'VERIFIED', rejection_reason: null }).eq('id', docId);
+            loadDocuments();
+        }
+
+        function openRejectModal(docId) {
+            document.getElementById('rejectDocId').value = docId;
+            document.getElementById('rejectReason').value = '';
+            rejectModalInstance.show();
+        }
+
+        async function submitRejection() {
+            const docId = document.getElementById('rejectDocId').value;
+            const reason = document.getElementById('rejectReason').value;
+            if(!reason) { alert("Please provide a reason."); return; }
+
+            await supabase.from('application_documents').update({ verification_status: 'REJECTED', rejection_reason: reason }).eq('id', docId);
+            rejectModalInstance.hide();
+            loadDocuments();
+        }
+
+        async function advanceApplication() {
+            // Check if all docs are verified first
+            const { data: docs } = await supabase.from('application_documents').select('verification_status').eq('application_id', currentAppId);
+            const allVerified = docs.every(d => d.verification_status === 'VERIFIED');
+            
+            if (!allVerified) {
+                alert("You cannot advance this application. All documents must be marked as VERIFIED first.");
+                return;
+            }
+
+            if(confirm("Forward this application to CTMO for Inspection?")) {
+                // We added "const { error }" to catch the database block
+                const { error } = await supabase.from('applications')
+                    .update({ current_status: 'FOR_INSPECTION' })
+                    .eq('id', currentAppId);
+
+                if (error) {
+                    alert("Database Error: " + error.message);
+                } else {
+                    alert("Application advanced to FOR_INSPECTION.");
+                    window.location.href = 'dashboard.html';
+                }
+            }
+        }
+    </script>
+</body>
+</html>

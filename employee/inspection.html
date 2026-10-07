@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Inspection | WTOIS CTMO</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="dashboard.html">← Back to Queue</a>
+            <span class="navbar-text text-white">CTMO Inspection Module</span>
+        </div>
+    </nav>
+
+    <div class="container mb-5">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header bg-white py-3">
+                        <h5 class="mb-0 text-warning">Vehicle Information</h5>
+                    </div>
+                    <div class="card-body" id="vehicleDetailsContainer">
+                        <p class="text-center">Loading vehicle data...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card shadow-sm border-warning">
+                    <div class="card-header bg-warning text-dark py-3">
+                        <h5 class="mb-0">Inspection Result</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="inspectionForm">
+                            <div class="mb-4">
+                                <label class="form-label fw-bold">Inspection Remarks / Violations</label>
+                                <textarea id="inspectionRemarks" class="form-control" rows="4" placeholder="Note any missing sidecars, broken lights, etc. Leave blank if perfect."></textarea>
+                            </div>
+                            
+                            <div class="d-flex gap-3">
+                                <button type="button" class="btn btn-danger flex-grow-1" onclick="submitInspection('FAILED')">
+                                    Fail Inspection
+                                </button>
+                                <button type="button" class="btn btn-success flex-grow-1" onclick="submitInspection('PASSED')">
+                                    Pass & Forward to CTO
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/auth.js"></script>
+    <script>
+        let currentAppId = new URLSearchParams(window.location.search).get('id');
+        let currentVehicleId = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const auth = await checkAuthAndRoute();
+            if(!auth) return;
+            
+            if (!currentAppId) {
+                document.getElementById('vehicleDetailsContainer').innerHTML = '<div class="alert alert-danger">No application ID provided.</div>';
+                return;
+            }
+            loadVehicleDetails();
+        });
+
+        async function loadVehicleDetails() {
+            const { data, error } = await supabase
+                .from('applications')
+                .select(`
+                    application_number, current_status, vehicle_id,
+                    vehicles ( plate_number, make, model, engine_number, chassis_number )
+                `)
+                .eq('id', currentAppId)
+                .single();
+
+            if (error || !data) return;
+            
+            if (data.current_status !== 'FOR_INSPECTION') {
+                document.getElementById('vehicleDetailsContainer').innerHTML = `<div class="alert alert-warning">This application is currently in stage: ${data.current_status}. It is not ready for inspection.</div>`;
+                document.getElementById('inspectionForm').style.display = 'none';
+                return;
+            }
+
+            currentVehicleId = data.vehicle_id;
+
+            document.getElementById('vehicleDetailsContainer').innerHTML = `
+                <div class="row mb-3"><div class="col-sm-4 text-muted">Application Ref</div><div class="col-sm-8 fw-bold">${data.application_number}</div></div>
+                <hr>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Plate Number</div><div class="col-sm-8 fw-bold fs-5">${data.vehicles.plate_number}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Make / Model</div><div class="col-sm-8">${data.vehicles.make} ${data.vehicles.model || ''}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Engine #</div><div class="col-sm-8">${data.vehicles.engine_number}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Chassis #</div><div class="col-sm-8">${data.vehicles.chassis_number}</div></div>
+            `;
+        }
+
+        async function submitInspection(result) {
+            const remarks = document.getElementById('inspectionRemarks').value;
+            
+            if (result === 'FAILED' && !remarks.trim()) {
+                alert("You must provide remarks if the vehicle fails inspection.");
+                return;
+            }
+
+            const confirmMsg = result === 'PASSED' 
+                ? "Pass this vehicle and forward to the Treasurer's Office (CTO) for payment?" 
+                : "Fail this vehicle and reject the application?";
+                
+            if(!confirm(confirmMsg)) return;
+
+            // Update Vehicle Status
+            await supabase.from('vehicles')
+                .update({ status: result === 'PASSED' ? 'ACTIVE' : 'INACTIVE' })
+                .eq('id', currentVehicleId);
+
+            // Update Application Status
+            const newAppStatus = result === 'PASSED' ? 'FOR_PAYMENT' : 'REJECTED';
+            const { error } = await supabase.from('applications')
+                .update({ 
+                    current_status: newAppStatus,
+                    remarks: remarks ? `Inspection Remarks: ${remarks}` : null
+                })
+                .eq('id', currentAppId);
+
+            if (error) {
+                alert("Error updating application: " + error.message);
+            } else {
+                alert(`Inspection recorded! Application status updated to ${newAppStatus}.`);
+                window.location.href = 'dashboard.html';
+            }
+        }
+    </script>
+</body>
+</html>

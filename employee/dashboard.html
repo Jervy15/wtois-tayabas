@@ -58,6 +58,7 @@
             const { data, error } = await supabase
                 .from('applications')
                 .select('id, application_number, applicant_id, transaction_type, current_status, submitted_at')
+                .neq('current_status', 'DRAFT') // Hide drafts from LGU staff
                 .order('submitted_at', { ascending: false });
 
             if (error) {
@@ -70,18 +71,33 @@
                 return;
             }
 
-            tbody.innerHTML = data.map(app => `
+            tbody.innerHTML = data.map(app => {
+                let actionButton = '';
+                
+                // Route to the correct module based on status
+                if (app.current_status === 'SUBMITTED') {
+                    actionButton = `<a href="review.html?id=${app.id}" class="btn btn-sm btn-primary">Verify Docs (TFRB)</a>`;
+                } else if (app.current_status === 'FOR_INSPECTION') {
+                    actionButton = `<a href="inspection.html?id=${app.id}" class="btn btn-sm btn-warning text-dark">Inspect (CTMO)</a>`;
+                } else if (app.current_status === 'FOR_PAYMENT') {
+                    actionButton = `<a href="payment.html?id=${app.id}" class="btn btn-sm btn-info text-dark">Process Payment (CTO)</a>`;
+                } else if (app.current_status === 'FOR_APPROVAL') {
+                    actionButton = `<a href="approval.html?id=${app.id}" class="btn btn-sm btn-success">Mayor Approval (CMO)</a>`;
+                } else {
+                    actionButton = `<span class="text-muted small">Awaiting next step</span>`;
+                }
+
+                return `
                 <tr>
                     <td class="fw-bold">${app.application_number}</td>
                     <td class="text-muted small" title="${app.applicant_id}">${app.applicant_id.substring(0,8)}...</td>
                     <td><span class="badge bg-secondary">${app.transaction_type}</span></td>
                     <td>${getStatusBadge(app.current_status)}</td>
                     <td>${formatDate(app.submitted_at)}</td>
-                    <td>
-                        <button class="btn btn-sm btn-primary">Review Docs</button>
-                    </td>
+                    <td>${actionButton}</td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
         }
     </script>
 </body>

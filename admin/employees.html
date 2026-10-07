@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Management | WTOIS Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-danger mb-4">
+        <div class="container-fluid px-4">
+            <span class="navbar-brand fw-bold">WTOIS Administrator Portal</span>
+            <div class="d-flex">
+                <button class="btn btn-outline-light btn-sm" onclick="logout()">Secure Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mb-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4 class="mb-0">System User Management</h4>
+            <span class="badge bg-danger text-white px-3 py-2">Master Admin Access</span>
+        </div>
+
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-white py-3 border-bottom">
+                <h6 class="mb-0 text-muted">Registered Accounts (Awaiting Promotion)</h6>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Name</th>
+                                <th>Email / Contact</th>
+                                <th>Current Access</th>
+                                <th>Joined</th>
+                                <th class="text-end pe-4">Admin Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersList">
+                            <tr><td colspan="5" class="text-center py-4">Loading accounts...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Promotion Modal -->
+    <div class="modal fade" id="promoteModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Promote to LGU Employee</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning small">
+                        This action will grant this user access to the internal LGU Employee Dashboard.
+                    </div>
+                    <form id="promoteForm">
+                        <input type="hidden" id="targetUserId">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Assign LGU Office</label>
+                            <select id="assignOffice" class="form-select" required>
+                                <option value="">Select Office...</option>
+                                <option value="TFRB">TFRB (Document Verification)</option>
+                                <option value="CTMO">CTMO (Vehicle Inspection)</option>
+                                <option value="CTO">CTO (Treasury / Payment)</option>
+                                <option value="CMO">CMO (Mayor's Office)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Job Role / Position</label>
+                            <input type="text" id="assignRole" class="form-control" required placeholder="e.g., Verification Officer">
+                        </div>
+                        <button type="submit" id="btnConfirmPromote" class="btn btn-danger w-100 fw-bold">Confirm Promotion</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script>
+        let promoteModalInstance;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const { data: { user }, error } = await supabase.auth.getUser();
+            if (!user) {
+                window.location.href = '../login.html';
+                return;
+            }
+
+            // Strict Admin check on the frontend
+            const { data: profile } = await supabase.from('profiles').select('account_type').eq('id', user.id).single();
+            if (profile?.account_type !== 'ADMIN') {
+                document.body.innerHTML = '<div class="container mt-5"><div class="alert alert-danger"><h1>Unauthorized</h1><p>You do not have Master Admin credentials.</p><a href="../login.html" class="btn btn-primary">Return to Login</a></div></div>';
+                return;
+            }
+
+            promoteModalInstance = new bootstrap.Modal(document.getElementById('promoteModal'));
+            loadUsers();
+        });
+
+        async function loadUsers() {
+            // Fetch all non-admin users
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .neq('account_type', 'ADMIN')
+                .order('created_at', { ascending: false });
+
+            const tbody = document.getElementById('usersList');
+            if (error || data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No users found.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.map(user => `
+                <tr>
+                    <td class="ps-4 fw-bold">${user.first_name || 'N/A'} ${user.last_name || ''}</td>
+                    <td>
+                        <div class="small">${user.email || 'N/A'}</div>
+                    </td>
+                    <td>
+                        <span class="badge ${user.account_type === 'EMPLOYEE' ? 'bg-success' : 'bg-secondary'}">${user.account_type || 'APPLICANT'}</span>
+                    </td>
+                    <td class="small text-muted">${new Date(user.created_at).toLocaleDateString()}</td>
+                    <td class="text-end pe-4">
+                        ${user.account_type !== 'EMPLOYEE' 
+                            ? `<button class="btn btn-sm btn-outline-danger" onclick="openPromoteModal('${user.id}')">Promote to Employee</button>` 
+                            : `<span class="text-success small fw-bold">✓ Active Staff</span>`
+                        }
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function openPromoteModal(userId) {
+            document.getElementById('targetUserId').value = userId;
+            document.getElementById('promoteForm').reset();
+            promoteModalInstance.show();
+        }
+
+        document.getElementById('promoteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const targetId = document.getElementById('targetUserId').value;
+            const office = document.getElementById('assignOffice').value;
+            const role = document.getElementById('assignRole').value;
+
+            if(!confirm("Are you sure you want to grant this user internal LGU access?")) return;
+            
+            showLoader('btnConfirmPromote', 'Promoting...');
+
+            // Call the secure Database Function (RPC)
+            const { error } = await supabase.rpc('admin_promote_employee', {
+                p_target_user_id: targetId,
+                p_office: office,
+                p_role: role
+            });
+
+            if (error) {
+                alert("Error: " + error.message);
+                hideLoader('btnConfirmPromote');
+            } else {
+                alert("Account successfully upgraded to LGU Employee!");
+                promoteModalInstance.hide();
+                loadUsers();
+            }
+        });
+
+        async function logout() {
+            await supabase.auth.signOut();
+            window.location.href = '../login.html';
+        }
+    </script>
+</body>
+</html>
