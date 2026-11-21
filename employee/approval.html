@@ -36,8 +36,13 @@
                         <h5 class="mb-0">Mayor's Decision</h5>
                     </div>
                     <div class="card-body">
-                        <div class="alert alert-success small mb-4">
-                            All previous departments (TFRB, CTMO, CTO) have cleared this application. It is now ready for final approval.
+                        <div class="alert alert-success small mb-3">
+                            All previous departments (TFRB, CTMO, CTO) have cleared this application. Approving will officially issue an MTOP Franchise Record.
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Official Remarks / Decision Notes</label>
+                            <textarea id="decisionRemarks" class="form-control" rows="3" placeholder="Enter approval notes or reason if rejecting..."></textarea>
                         </div>
                         
                         <div class="d-grid gap-3">
@@ -62,17 +67,18 @@
 
         document.addEventListener('DOMContentLoaded', async () => {
             const auth = await checkAuthAndRoute();
-            if(!auth) return;
+            if (!auth) return;
             
             if (!currentAppId) {
                 document.getElementById('appDetailsContainer').innerHTML = '<div class="alert alert-danger">No application ID provided.</div>';
+                document.getElementById('btnApprove').disabled = true;
+                document.getElementById('btnReject').disabled = true;
                 return;
             }
             loadApprovalDetails();
         });
 
         async function loadApprovalDetails() {
-            // 1. Get Application & Vehicle (without trying to join profiles)
             const { data: appData, error: appError } = await supabase
                 .from('applications')
                 .select(`
@@ -86,13 +92,20 @@
                 document.getElementById('appDetailsContainer').innerHTML = `<div class="alert alert-danger">App Error: ${appError.message}</div>`;
                 return;
             }
-            
-            // 2. Safely get the Profile separately
+
             const { data: profileData } = await supabase
                 .from('profiles')
                 .select('first_name, last_name, address')
                 .eq('id', appData.applicant_id)
                 .single();
+
+            const { data: paymentData } = await supabase
+                .from('payments')
+                .select('official_receipt_number, amount, payment_date, payment_status')
+                .eq('application_id', currentAppId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
 
             if (appData.current_status !== 'FOR_APPROVAL') {
                 document.getElementById('appDetailsContainer').innerHTML = `<div class="alert alert-warning">This application is currently in stage: ${appData.current_status}. It is not ready for final approval.</div>`;
@@ -104,6 +117,11 @@
             const firstName = profileData ? profileData.first_name : 'Unknown';
             const lastName = profileData ? profileData.last_name : '';
             const address = profileData ? profileData.address : 'N/A';
+            const formattedDate = appData.submitted_at ? new Date(appData.submitted_at).toLocaleDateString() : 'N/A';
+
+            const paymentHtml = paymentData
+                ? `<div class="row mb-2"><div class="col-sm-4 text-muted">Official Receipt</div><div class="col-sm-8 fw-bold text-primary">${paymentData.official_receipt_number} (PHP ${Number(paymentData.amount).toFixed(2)}) — <span class="badge bg-success">${paymentData.payment_status}</span></div></div>`
+                : `<div class="row mb-2"><div class="col-sm-4 text-muted">Payment Status</div><div class="col-sm-8 text-muted small">Recorded in remarks</div></div>`;
 
             document.getElementById('appDetailsContainer').innerHTML = `
                 <h6 class="fw-bold text-secondary border-bottom pb-2">Applicant Information</h6>
@@ -115,9 +133,11 @@
                 <div class="row mb-2"><div class="col-sm-4 text-muted">Make / Model</div><div class="col-sm-8">${appData.vehicles?.make || ''} ${appData.vehicles?.model || ''}</div></div>
                 <div class="row mb-3"><div class="col-sm-4 text-muted">Engine/Chassis</div><div class="col-sm-8 text-break">${appData.vehicles?.engine_number || ''} / ${appData.vehicles?.chassis_number || ''}</div></div>
 
-                <h6 class="fw-bold text-secondary border-bottom pb-2 mt-4">LGU Processing Notes</h6>
+                <h6 class="fw-bold text-secondary border-bottom pb-2 mt-4">LGU Processing & Payment Verification</h6>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Application Ref</div><div class="col-sm-8 fw-bold">${appData.application_number}</div></div>
                 <div class="row mb-2"><div class="col-sm-4 text-muted">Transaction</div><div class="col-sm-8"><span class="badge bg-secondary">${appData.transaction_type}</span></div></div>
-                <div class="row mb-2"><div class="col-sm-4 text-muted">Started</div><div class="col-sm-8">${formatDate(appData.submitted_at)}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Started</div><div class="col-sm-8">${formattedDate}</div></div>
+                ${paymentHtml}
                 <div class="row mb-2">
                     <div class="col-sm-4 text-muted">LGU Remarks</div>
                     <div class="col-sm-8"><div class="bg-light p-2 rounded small text-muted font-monospace">${appData.remarks || 'No remarks recorded.'}</div></div>
@@ -127,17 +147,35 @@
 
         async function submitDecision(decision) {
             const isApproving = decision === 'APPROVED';
-            if(!confirm(isApproving ? "Are you sure you want to officially APPROVE this franchise?" : "Are you sure you want to REJECT this franchise?")) return;
+            const remarks = document.getElementById('decisionRemarks').value.trim();
 
-            const { error } = await supabase.from('applications')
-                .update({ current_status: decision })
-                .eq('id', currentAppId);
+            if (!isApproving && !remarks) {
+                alert("Please enter a reason in the Official Remarks box before rejecting an application.");
+                return;
+            }
+
+            if (!confirm(isApproving ? "Are you sure you want to officially APPROVE this franchise and generate an MTOP record?" : "Are you sure you want to REJECT this application?")) return;
+
+            const btnApprove = document.getElementById('btnApprove');
+            const btnReject = document.getElementById('btnReject');
+            btnApprove.disabled = true;
+            btnReject.disabled = true;
+            btnApprove.innerHTML = isApproving ? '<span class="spinner-border spinner-border-sm"></span> Issuing MTOP...' : 'Approve & Grant MTOP Franchise';
+
+            const { data, error } = await supabase.rpc('process_application_decision', {
+                p_application_id: currentAppId,
+                p_decision: decision,
+                p_remarks: remarks
+            });
 
             if (error) {
-                // If you get an enum error here, we'll need to run an ALTER TYPE command again for 'APPROVED'
                 alert("Database Error: " + error.message);
+                btnApprove.disabled = false;
+                btnReject.disabled = false;
+                btnApprove.innerHTML = 'Approve & Grant MTOP Franchise';
             } else {
-                alert(`Application has been officially ${decision}!`);
+                const mtopMsg = data?.mtop_number ? `\nIssued Official MTOP Number: ${data.mtop_number}` : '';
+                alert(`Application has been officially ${decision}!${mtopMsg}`);
                 window.location.href = 'dashboard.html';
             }
         }

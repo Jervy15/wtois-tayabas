@@ -1,56 +1,97 @@
-// Core Authentication & Route Guard Module
+// Shared Authentication, Route Guard, and Logout Helpers for WTOIS
 
-// Detect if running on GitHub Pages to inject the repository subfolder
-const BASE_PATH = window.location.hostname.includes('github.io') ? '/wtois-tayabas' : '';
-
-async function checkAuthAndRoute() {
-    const { data: { session }, error } = await supabase.auth.getSession();
-    const currentPath = window.location.pathname;
-    
-    const isPublicPage = currentPath.includes('login.html') || 
-                         currentPath.includes('register.html') || 
-                         currentPath === '/' || 
-                         currentPath === BASE_PATH + '/';
-
-    if (!session && !isPublicPage) {
-        window.location.href = BASE_PATH + '/login.html';
-        return null;
+function getLoginUrl() {
+    const normalizedPath = window.location.pathname.replace(/\\/g, '/');
+    if (
+        normalizedPath.includes('/applicant/') ||
+        normalizedPath.includes('/employee/') ||
+        normalizedPath.includes('/admin/')
+    ) {
+        return '../login.html';
     }
+    return 'login.html';
+}
 
-    if (session) {
-        // Fetch profile to determine routing
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('account_type, account_status')
-            .eq('id', session.user.id)
-            .single();
+function getDashboardUrl(accountType) {
+    const normalizedPath = window.location.pathname.replace(/\\/g, '/');
+    const inSubfolder =
+        normalizedPath.includes('/applicant/') ||
+        normalizedPath.includes('/employee/') ||
+        normalizedPath.includes('/admin/');
 
-        if (!profile || profile.account_status !== 'ACTIVE') {
-            await supabase.auth.signOut();
-            alert("Account inactive or not found.");
-            window.location.href = BASE_PATH + '/login.html';
-            return null;
-        }
+    const prefix = inSubfolder ? '../' : '';
 
-        // Enforce Portal Separation
-        if (profile.account_type === 'APPLICANT' && currentPath.includes('/employee/')) {
-            window.location.href = BASE_PATH + '/applicant/dashboard.html';
-        } else if (profile.account_type === 'EMPLOYEE' && currentPath.includes('/applicant/')) {
-            window.location.href = BASE_PATH + '/employee/dashboard.html';
-        }
-
-        // Redirect away from login if already authenticated
-        if (isPublicPage) {
-            window.location.href = profile.account_type === 'APPLICANT' 
-                ? BASE_PATH + '/applicant/dashboard.html' 
-                : BASE_PATH + '/employee/dashboard.html';
-        }
-        return { session, profile };
-    }
-    return null;
+    if (accountType === 'ADMIN') return `${prefix}admin/employees.html`;
+    if (accountType === 'EMPLOYEE') return `${prefix}employee/dashboard.html`;
+    return `${prefix}applicant/dashboard.html`;
 }
 
 async function logout() {
-    await supabase.auth.signOut();
-    window.location.href = BASE_PATH + '/login.html';
+    try {
+        await supabase.auth.signOut();
+    } catch (err) {
+        console.error('Sign out error:', err);
+    } finally {
+        window.location.href = getLoginUrl();
+    }
 }
+
+async function checkAuthAndRoute() {
+    const loginUrl = getLoginUrl();
+
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error || !session || !session.user) {
+        window.location.href = loginUrl;
+        return null;
+    }
+
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, account_type, first_name, middle_name, last_name, email, account_status')
+        .eq('id', session.user.id)
+        .single();
+
+    if (profileError || !profile) {
+        await supabase.auth.signOut();
+        window.location.href = loginUrl;
+        return null;
+    }
+
+    if (profile.account_status && profile.account_status.toUpperCase() !== 'ACTIVE') {
+        alert('Your account is currently inactive. Please contact the LGU Administrator.');
+        await supabase.auth.signOut();
+        window.location.href = loginUrl;
+        return null;
+    }
+
+    const path = window.location.pathname.replace(/\\/g, '/');
+
+    // Enforce portal separation by account_type
+    if (path.includes('/admin/') && profile.account_type !== 'ADMIN') {
+        window.location.href = getDashboardUrl(profile.account_type);
+        return null;
+    }
+
+    if (path.includes('/employee/') && !['EMPLOYEE', 'ADMIN'].includes(profile.account_type)) {
+        window.location.href = getDashboardUrl(profile.account_type);
+        return null;
+    }
+
+    if (path.includes('/applicant/') && profile.account_type !== 'APPLICANT') {
+        window.location.href = getDashboardUrl(profile.account_type);
+        return null;
+    }
+
+    return { session, user: session.user, profile };
+}
+
+// Automatically attach logout handler to any #btnLogout or [data-logout] button
+document.addEventListener('DOMContentLoaded', () => {
+    const logoutButtons = document.querySelectorAll('#btnLogout, [data-logout]');
+    logoutButtons.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            logout();
+        });
+    });
+});

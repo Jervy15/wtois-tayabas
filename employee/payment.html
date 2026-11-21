@@ -31,12 +31,12 @@
             <div class="col-md-6">
                 <div class="card shadow-sm border-info">
                     <div class="card-header bg-info text-dark py-3">
-                        <h5 class="mb-0">Record Payment</h5>
+                        <h5 class="mb-0">Record Official Payment</h5>
                     </div>
                     <div class="card-body">
                         <form id="paymentForm">
                             <div class="alert alert-secondary small">
-                                Collect the exact fee at the cashier window, generate the Official Receipt, and input the details below.
+                                Collect the exact fee at the City Treasurer's Office cashier window, generate the Official Receipt, and input the details below.
                             </div>
                             
                             <div class="mb-3">
@@ -44,9 +44,14 @@
                                 <input type="text" id="orNumber" class="form-control" required placeholder="e.g., OR-987654321">
                             </div>
                             
-                            <div class="mb-4">
+                            <div class="mb-3">
                                 <label class="form-label fw-bold">Amount Paid (PHP) <span class="text-danger">*</span></label>
-                                <input type="number" id="amountPaid" class="form-control" required placeholder="0.00" step="0.01">
+                                <input type="number" id="amountPaid" class="form-control" required placeholder="0.00" step="0.01" min="0">
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="form-label fw-bold">Cashier Remarks (Optional)</label>
+                                <textarea id="paymentRemarks" class="form-control" rows="2" placeholder="e.g., Franchise Fee + Sticker Fee"></textarea>
                             </div>
                             
                             <button type="submit" id="btnSubmitPayment" class="btn btn-info w-100 fw-bold">
@@ -64,21 +69,20 @@
     <script src="../assets/js/auth.js"></script>
     <script>
         let currentAppId = new URLSearchParams(window.location.search).get('id');
-        let currentRemarks = "";
 
         document.addEventListener('DOMContentLoaded', async () => {
             const auth = await checkAuthAndRoute();
-            if(!auth) return;
+            if (!auth) return;
             
             if (!currentAppId) {
                 document.getElementById('appDetailsContainer').innerHTML = '<div class="alert alert-danger">No application ID provided.</div>';
+                document.getElementById('paymentForm').style.display = 'none';
                 return;
             }
             loadPaymentDetails();
         });
 
         async function loadPaymentDetails() {
-            // 1. Get Application & Vehicle (without trying to join profiles)
             const { data: appData, error: appError } = await supabase
                 .from('applications')
                 .select(`
@@ -90,10 +94,10 @@
 
             if (appError) {
                 document.getElementById('appDetailsContainer').innerHTML = `<div class="alert alert-danger">App Error: ${appError.message}</div>`;
+                document.getElementById('paymentForm').style.display = 'none';
                 return;
             }
 
-            // 2. Safely get the Profile separately
             const { data: profileData } = await supabase
                 .from('profiles')
                 .select('first_name, last_name')
@@ -106,7 +110,6 @@
                 return;
             }
 
-            currentRemarks = appData.remarks || "";
             const firstName = profileData ? profileData.first_name : 'Unknown';
             const lastName = profileData ? profileData.last_name : '';
 
@@ -123,25 +126,30 @@
         document.getElementById('paymentForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            const orNumber = document.getElementById('orNumber').value;
-            const amount = document.getElementById('amountPaid').value;
+            const orNumber = document.getElementById('orNumber').value.trim();
+            const amount = parseFloat(document.getElementById('amountPaid').value);
+            const remarks = document.getElementById('paymentRemarks').value.trim();
+            const btn = document.getElementById('btnSubmitPayment');
             
-            if(!confirm(`Confirm payment of PHP ${amount} with OR# ${orNumber}?`)) return;
+            if (!confirm(`Confirm official payment of PHP ${amount.toFixed(2)} with OR# ${orNumber}?`)) return;
 
-            // Append payment details to existing remarks so we don't lose inspection notes
-            const updatedRemarks = `${currentRemarks} | Payment OR#: ${orNumber} (PHP ${amount})`;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Recording Payment...';
 
-            const { error } = await supabase.from('applications')
-                .update({ 
-                    current_status: 'FOR_APPROVAL',
-                    remarks: updatedRemarks
-                })
-                .eq('id', currentAppId);
+            const { error } = await supabase.rpc('record_payment', {
+                p_application_id: currentAppId,
+                p_or_number: orNumber,
+                p_amount: amount,
+                p_remarks: remarks
+            });
 
             if (error) {
-                alert("Database Error: " + error.message);
+                alert("Payment Error: " + error.message);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
             } else {
-                alert("Payment recorded successfully! Forwarded to Mayor's Office.");
+                alert("Official payment recorded in database! Forwarded to City Mayor's Office.");
                 window.location.href = 'dashboard.html';
             }
         });

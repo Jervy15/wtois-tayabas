@@ -10,9 +10,10 @@
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container-fluid px-4">
-            <a class="navbar-brand" href="#">WTOIS LGU Portal</a>
-            <div class="d-flex">
-                <button class="btn btn-sm btn-outline-light" onclick="logout()">Secure Logout</button>
+            <a class="navbar-brand fw-bold" href="dashboard.html">WTOIS LGU Portal</a>
+            <div class="d-flex align-items-center gap-2">
+                <a href="verify-applicant.html" class="btn btn-outline-info btn-sm fw-bold">Scan Applicant QR</a>
+                <button type="button" class="btn btn-sm btn-outline-light" onclick="logout()">Secure Logout</button>
             </div>
         </div>
     </nav>
@@ -49,7 +50,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', async () => {
             const auth = await checkAuthAndRoute();
-            if(auth) loadQueue();
+            if (auth) loadQueue();
         });
 
         async function loadQueue() {
@@ -75,14 +76,18 @@
                 let actionButton = '';
                 
                 // Route to the correct module based on status
-                if (app.current_status === 'SUBMITTED') {
+                if (app.current_status === 'SUBMITTED' || app.current_status === 'DOCUMENT_VERIFICATION') {
                     actionButton = `<a href="review.html?id=${app.id}" class="btn btn-sm btn-primary">Verify Docs (TFRB)</a>`;
-                } else if (app.current_status === 'FOR_INSPECTION') {
+                } else if (app.current_status === 'FOR_INSPECTION' || app.current_status === 'FOR_REINSPECTION') {
                     actionButton = `<a href="inspection.html?id=${app.id}" class="btn btn-sm btn-warning text-dark">Inspect (CTMO)</a>`;
                 } else if (app.current_status === 'FOR_PAYMENT') {
                     actionButton = `<a href="payment.html?id=${app.id}" class="btn btn-sm btn-info text-dark">Process Payment (CTO)</a>`;
                 } else if (app.current_status === 'FOR_APPROVAL') {
                     actionButton = `<a href="approval.html?id=${app.id}" class="btn btn-sm btn-success">Mayor Approval (CMO)</a>`;
+                } else if (app.current_status === 'APPROVED') {
+                    actionButton = `<span class="badge bg-success">Approved / MTOP Issued</span>`;
+                } else if (app.current_status === 'REJECTED' || app.current_status === 'INSPECTION_FAILED') {
+                    actionButton = `<span class="badge bg-danger">Closed (${app.current_status})</span>`;
                 } else {
                     actionButton = `<span class="text-muted small">Awaiting next step</span>`;
                 }
@@ -90,7 +95,7 @@
                 return `
                 <tr>
                     <td class="fw-bold">${app.application_number}</td>
-                    <td class="text-muted small" title="${app.applicant_id}">${app.applicant_id.substring(0,8)}...</td>
+                    <td class="text-muted small" title="${app.applicant_id}">${app.applicant_id.substring(0, 8)}...</td>
                     <td><span class="badge bg-secondary">${app.transaction_type}</span></td>
                     <td>${getStatusBadge(app.current_status)}</td>
                     <td>${formatDate(app.submitted_at)}</td>

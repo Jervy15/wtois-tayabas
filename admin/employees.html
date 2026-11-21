@@ -11,8 +11,9 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-danger mb-4">
         <div class="container-fluid px-4">
             <span class="navbar-brand fw-bold">WTOIS Administrator Portal</span>
-            <div class="d-flex">
-                <button class="btn btn-outline-light btn-sm" onclick="logout()">Secure Logout</button>
+            <div class="d-flex align-items-center gap-2">
+                <a href="../employee/dashboard.html" class="btn btn-outline-light btn-sm">LGU Processing Queue</a>
+                <button type="button" class="btn btn-light btn-sm text-danger fw-bold" onclick="logout()">Secure Logout</button>
             </div>
         </div>
     </nav>
@@ -90,7 +91,7 @@
         let promoteModalInstance;
 
         document.addEventListener('DOMContentLoaded', async () => {
-            const { data: { user }, error } = await supabase.auth.getUser();
+            const { data: { user } } = await supabase.auth.getUser();
             if (!user) {
                 window.location.href = '../login.html';
                 return;
@@ -108,7 +109,6 @@
         });
 
         async function loadUsers() {
-            // Fetch all non-admin users
             const { data, error } = await supabase
                 .from('profiles')
                 .select('*')
@@ -116,7 +116,7 @@
                 .order('created_at', { ascending: false });
 
             const tbody = document.getElementById('usersList');
-            if (error || data.length === 0) {
+            if (error || !data || data.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No users found.</td></tr>`;
                 return;
             }
@@ -144,6 +144,9 @@
         function openPromoteModal(userId) {
             document.getElementById('targetUserId').value = userId;
             document.getElementById('promoteForm').reset();
+            const btn = document.getElementById('btnConfirmPromote');
+            btn.disabled = false;
+            btn.innerHTML = 'Confirm Promotion';
             promoteModalInstance.show();
         }
 
@@ -153,11 +156,10 @@
             const office = document.getElementById('assignOffice').value;
             const role = document.getElementById('assignRole').value;
 
-            if(!confirm("Are you sure you want to grant this user internal LGU access?")) return;
+            if (!confirm("Are you sure you want to grant this user internal LGU access?")) return;
             
             showLoader('btnConfirmPromote', 'Promoting...');
 
-            // Call the secure Database Function (RPC)
             const { error } = await supabase.rpc('admin_promote_employee', {
                 p_target_user_id: targetId,
                 p_office: office,
@@ -168,6 +170,7 @@
                 alert("Error: " + error.message);
                 hideLoader('btnConfirmPromote');
             } else {
+                hideLoader('btnConfirmPromote');
                 alert("Account successfully upgraded to LGU Employee!");
                 promoteModalInstance.hide();
                 loadUsers();
