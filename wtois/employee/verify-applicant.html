@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Scanner & Applicant Verification | WTOIS LGU Portal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        #qrReader {
+            width: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .unit-thumb {
+            width: 100%;
+            height: 130px;
+            object-fit: cover;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="dashboard.html">← Back to Queue</a>
+            <span class="navbar-text text-white">
+                <i class="bi bi-qr-code-scan"></i> LGU Applicant QR Verification
+            </span>
+        </div>
+    </nav>
+
+    <div class="container mb-5">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h4 class="fw-bold mb-0">Applicant & Operator QR Verification</h4>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <!-- Left Column: Camera QR Scanner & Manual Lookup -->
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-dark text-white py-3">
+                        <h6 class="mb-0 fw-bold"><i class="bi bi-camera-video"></i> Scan Applicant QR Code</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="qrReader" class="mb-3 bg-light border"></div>
+                        <div class="d-grid gap-2">
+                            <button type="button" id="btnStartScan" class="btn btn-primary fw-bold">
+                                <i class="bi bi-qr-code-scan"></i> Start Camera Scanner
+                            </button>
+                            <button type="button" id="btnStopScan" class="btn btn-outline-danger" style="display: none;">
+                                <i class="bi bi-stop-circle"></i> Stop Camera
+                            </button>
+                        </div>
+                        <div id="scannerStatus" class="small text-muted mt-2 text-center">
+                            Point your camera at the applicant's Digital QR Pass.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Manual / Barcode Gun Lookup -->
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0 fw-bold"><i class="bi bi-search"></i> Manual / Handheld Scanner Lookup</h6>
+                    </div>
+                    <div class="card-body">
+                        <form id="manualLookupForm">
+                            <label class="form-label small text-muted">
+                                Enter Operator Code (<code>OP-...</code>), MTOP Number, Plate Number, or scan with a USB barcode gun:
+                            </label>
+                            <div class="input-group">
+                                <input type="text" id="lookupInput" class="form-control" placeholder="e.g., OP-A1B2C3D4 or 1234-AB" required>
+                                <button type="submit" id="btnManualSearch" class="btn btn-dark fw-bold">Verify</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Verified Applicant Data Output -->
+            <div class="col-lg-8">
+                <div id="resultContainer">
+                    <div class="card shadow-sm border-0 text-center py-5">
+                        <div class="card-body">
+                            <i class="bi bi-qr-code text-muted" style="font-size: 3.5rem;"></i>
+                            <h5 class="mt-3 fw-bold">Ready to Scan</h5>
+                            <p class="text-muted small mb-0">
+                                Scan an applicant's QR pass or enter their Operator ID / Plate Number on the left to inspect their verified LGU profile, MTOP franchise status, tricycle unit photos, and application history.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/auth.js"></script>
+    <script>
+        let html5QrCode = null;
+        let isScanning = false;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const auth = await checkAuthAndRoute();
+            if (!auth) return;
+
+            const tokenParam = new URLSearchParams(window.location.search).get('token');
+            if (tokenParam) {
+                document.getElementById('lookupInput').value = tokenParam;
+                await performVerificationLookup(tokenParam);
+            }
+        });
+
+        document.getElementById('btnStartScan').addEventListener('click', async () => {
+            const statusEl = document.getElementById('scannerStatus');
+            const btnStart = document.getElementById('btnStartScan');
+            const btnStop = document.getElementById('btnStopScan');
+
+            try {
+                html5QrCode = new Html5Qrcode("qrReader");
+                btnStart.disabled = true;
+                statusEl.innerText = "Requesting camera access...";
+
+                await html5QrCode.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: { width: 220, height: 220 } },
+                    async (decodedText) => {
+                        await stopScanner();
+                        document.getElementById('lookupInput').value = decodedText;
+                        await performVerificationLookup(decodedText);
+                    },
+                    () => { /* Ignore frame scan misses */ }
+                );
+
+                isScanning = true;
+                btnStart.style.display = 'none';
+                btnStart.disabled = false;
+                btnStop.style.display = 'block';
+                statusEl.innerHTML = '<span class="text-success fw-bold">Camera active — hold QR code steady inside the frame.</span>';
+            } catch (err) {
+                console.error(err);
+                btnStart.disabled = false;
+                statusEl.innerHTML = `<span class="text-danger">Camera unavailable: ${err.message || err}. Use Manual Lookup below.</span>`;
+            }
+        });
+
+        document.getElementById('btnStopScan').addEventListener('click', stopScanner);
+
+        async function stopScanner() {
+            if (html5QrCode && isScanning) {
+                try {
+                    await html5QrCode.stop();
+                    html5QrCode.clear();
+                } catch (e) {
+                    console.warn(e);
+                }
+            }
+            isScanning = false;
+            document.getElementById('btnStartScan').style.display = 'block';
+            document.getElementById('btnStopScan').style.display = 'none';
+            document.getElementById('scannerStatus').innerText = 'Camera stopped.';
+        }
+
+        document.getElementById('manualLookupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const query = document.getElementById('lookupInput').value.trim();
+            if (!query) return;
+            await performVerificationLookup(query);
+        });
+
+        async function performVerificationLookup(queryText) {
+            const container = document.getElementById('resultContainer');
+            container.innerHTML = `
+                <div class="card shadow-sm border-0 text-center py-5">
+                    <div class="card-body">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="text-muted mt-2 mb-0">Verifying applicant record in LGU database...</p>
+                    </div>
+                </div>
+            `;
+
+            const { data, error } = await supabase.rpc('lookup_applicant_by_qr', {
+                p_query: queryText
+            });
+
+            if (error) {
+                container.innerHTML = `<div class="alert alert-danger shadow-sm">Verification Error: ${error.message}</div>`;
+                return;
+            }
+
+            if (!data || !data.profile) {
+                container.innerHTML = `
+                    <div class="alert alert-warning shadow-sm">
+                        <h6 class="fw-bold mb-1"><i class="bi bi-exclamation-triangle"></i> No Matching Applicant Found</h6>
+                        <p class="small mb-0">No registered applicant matched <strong>${escapeHtml(queryText)}</strong>. Please verify the QR code or plate/MTOP number and try again.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            renderVerifiedApplicant(data);
+        }
+
+        async function renderVerifiedApplicant(data) {
+            const p = data.profile;
+            const vehicles = data.vehicles || [];
+            const mtops = data.mtop_records || [];
+            const apps = data.applications || [];
+
+            const fullName = [p.first_name, p.middle_name, p.last_name, p.suffix].filter(Boolean).join(' ');
+            const fullAddress = [p.address, p.barangay ? `Brgy. ${p.barangay}` : '', 'Tayabas City'].filter(Boolean).join(', ');
+
+            const mtopHtml = mtops.length > 0
+                ? mtops.map(m => {
+                    const badge = m.status === 'ACTIVE' ? 'bg-success' : (m.status === 'EXPIRED' ? 'bg-warning text-dark' : 'bg-secondary');
+                    return `
+                        <div class="border rounded p-3 mb-2 bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-bold text-primary fs-5">${escapeHtml(m.mtop_number)}</div>
+                                <div class="small text-muted">Plate: <strong>${escapeHtml(m.plate_number || 'N/A')}</strong> (${escapeHtml(m.make_model || '')})</div>
+                                <div class="small text-muted">Issued: ${m.issue_date} • Expires: <strong>${m.expiration_date}</strong></div>
+                            </div>
+                            <span class="badge ${badge} fs-6">${escapeHtml(m.status)}</span>
+                        </div>
+                    `;
+                }).join('')
+                : '<p class="text-muted small mb-0">No official MTOP franchise issued yet.</p>';
+
+            const vehiclesHtml = vehicles.length > 0
+                ? `<div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Plate No.</th>
+                                <th>Make / Model</th>
+                                <th>Color</th>
+                                <th>Engine / Chassis</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${vehicles.map(v => `
+                                <tr>
+                                    <td class="fw-bold text-primary">${escapeHtml(v.plate_number)}</td>
+                                    <td>${escapeHtml(v.make)} ${escapeHtml(v.model)} ${v.year_model ? '(' + v.year_model + ')' : ''}</td>
+                                    <td>${escapeHtml(v.color || 'N/A')}</td>
+                                    <td class="small font-monospace">${escapeHtml(v.engine_number)} / ${escapeHtml(v.chassis_number)}</td>
+                                    <td><span class="badge bg-secondary">${escapeHtml(v.status)}</span></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                   </div>`
+                : '<p class="text-muted small mb-0">No vehicles registered under this applicant.</p>';
+
+            const appsHtml = apps.length > 0
+                ? `<div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Ref Number</th>
+                                <th>Type</th>
+                                <th>Plate</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${apps.map(a => {
+                                let actionLink = '';
+                                if (a.current_status === 'SUBMITTED' || a.current_status === 'DOCUMENT_VERIFICATION') {
+                                    actionLink = `<a href="review.html?id=${a.id}" class="btn btn-primary btn-sm py-0">Verify Docs</a>`;
+                                } else if (a.current_status === 'FOR_INSPECTION' || a.current_status === 'FOR_REINSPECTION') {
+                                    actionLink = `<a href="inspection.html?id=${a.id}" class="btn btn-warning btn-sm py-0">Inspect Unit</a>`;
+                                } else if (a.current_status === 'FOR_PAYMENT') {
+                                    actionLink = `<a href="payment.html?id=${a.id}" class="btn btn-info btn-sm py-0">Record Payment</a>`;
+                                } else if (a.current_status === 'FOR_APPROVAL') {
+                                    actionLink = `<a href="approval.html?id=${a.id}" class="btn btn-success btn-sm py-0">Approve</a>`;
+                                }
+                                return `
+                                    <tr>
+                                        <td class="fw-bold">${escapeHtml(a.application_number)}</td>
+                                        <td><span class="badge bg-secondary">${escapeHtml(a.transaction_type)}</span></td>
+                                        <td>${escapeHtml(a.plate_number || 'N/A')}</td>
+                                        <td><span class="badge bg-dark">${escapeHtml(a.current_status)}</span></td>
+                                        <td>${actionLink || '<span class="text-muted small">Completed</span>'}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                   </div>`
+                : '<p class="text-muted small mb-0">No applications submitted yet.</p>';
+
+            document.getElementById('resultContainer').innerHTML = `
+                <!-- Verified Applicant Profile Card -->
+                <div class="card shadow-sm border-success mb-4">
+                    <div class="card-header bg-success text-white py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 fw-bold"><i class="bi bi-patch-check-fill"></i> Verified Citizen / Operator Profile</h5>
+                        <span class="badge bg-light text-dark fw-bold">${escapeHtml(p.operator_code)}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <div class="text-muted small">Full Name</div>
+                                <div class="fw-bold fs-5">${escapeHtml(fullName)}</div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="text-muted small">Contact & Email</div>
+                                <div class="fw-bold">${escapeHtml(p.contact_number || 'No mobile number')}</div>
+                                <div class="small text-muted">${escapeHtml(p.email)}</div>
+                            </div>
+                            <div class="col-12">
+                                <div class="text-muted small">Registered Address</div>
+                                <div>${escapeHtml(fullAddress)}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Official MTOP Franchise Records -->
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-award"></i> Official MTOP Franchise Records</h6>
+                    </div>
+                    <div class="card-body">${mtopHtml}</div>
+                </div>
+
+                <!-- Registered Vehicles & Unit Photos -->
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-bicycle"></i> Registered Tricycle Units</h6>
+                    </div>
+                    <div class="card-body">
+                        ${vehiclesHtml}
+                        <div id="verifiedUnitPhotos" class="mt-3"></div>
+                    </div>
+                </div>
+
+                <!-- Application History -->
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3">
+                        <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-folder2-open"></i> MTOP Application History</h6>
+                    </div>
+                    <div class="card-body">${appsHtml}</div>
+                </div>
+            `;
+
+            if (apps.length > 0) {
+                loadLatestUnitPhotos(apps[0].id);
+            }
+        }
+
+        async function loadLatestUnitPhotos(latestAppId) {
+            const photoDiv = document.getElementById('verifiedUnitPhotos');
+            const { data: docs } = await supabase
+                .from('application_documents')
+                .select('storage_path, original_file_name')
+                .eq('application_id', latestAppId)
+                .eq('document_type', 'TRICYCLE_UNIT_PHOTO')
+                .limit(4);
+
+            if (!docs || docs.length === 0) return;
+
+            const thumbs = await Promise.all(docs.map(async (doc, idx) => {
+                const { data: signed } = await supabase.storage
+                    .from('application-documents')
+                    .createSignedUrl(doc.storage_path, 3600);
+                if (!signed?.signedUrl) return '';
+                return `
+                    <div class="col-6 col-md-3">
+                        <a href="${signed.signedUrl}" target="_blank" title="Open full photo">
+                            <img src="${signed.signedUrl}" class="unit-thumb border" alt="Tricycle Photo ${idx + 1}">
+                        </a>
+                    </div>
+                `;
+            }));
+
+            photoDiv.innerHTML = `
+                <div class="small fw-bold text-muted mb-2">Latest Submitted Tricycle Unit Photos:</div>
+                <div class="row g-2">${thumbs.join('')}</div>
+            `;
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    </script>
+</body>
+</html>
