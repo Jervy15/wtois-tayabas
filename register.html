@@ -3,81 +3,228 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register - WTOIS Tayabas City</title>
+    <title>Applicant Registration - WTOIS Tayabas City</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+        .register-card {
+            max-width: 620px;
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            background: #ffffff;
+            overflow: hidden;
+        }
+        .password-toggle {
+            cursor: pointer;
+        }
+    </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
-<body class="bg-light">
-    <div class="container mt-5">
-        <div class="row justify-content-center">
-            <div class="col-md-6">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-primary text-white text-center">
-                        <h4 class="mb-0">Applicant Registration</h4>
+<body>
+    <div class="register-card border">
+        <div class="bg-primary text-white text-center py-3 px-4">
+            <h4 class="mb-0 fw-bold">Applicant Registration</h4>
+            <div class="small opacity-75">Web-Based Tricycle Operator Information System — Tayabas City</div>
+        </div>
+
+        <div class="p-4">
+            <!-- Protocol Warning if opened via file:// instead of Live Server -->
+            <div id="fileProtocolWarning" class="alert alert-warning small" style="display: none;">
+                <i class="bi bi-exclamation-triangle-fill"></i>
+                <strong>Local File Mode Detected:</strong> Please open this page using <strong>VS Code Live Server</strong> (<code>http://127.0.0.1:5500/register.html</code>) so Supabase Authentication can process your registration properly.
+            </div>
+
+            <div id="registerError" class="alert alert-danger small" style="display: none;"></div>
+            <div id="registerSuccess" class="alert alert-success small" style="display: none;"></div>
+
+            <form id="registerForm">
+                <div class="row g-3">
+                    <div class="col-md-5">
+                        <label class="form-label fw-bold">First Name <span class="text-danger">*</span></label>
+                        <input type="text" id="firstName" class="form-control" required placeholder="e.g., Juan">
                     </div>
-                    <div class="card-body p-4">
-                        <form id="registerForm">
-                            <div class="row mb-3">
-                                <div class="col">
-                                    <label class="form-label">First Name</label>
-                                    <input type="text" id="firstName" class="form-control" required>
-                                </div>
-                                <div class="col">
-                                    <label class="form-label">Last Name</label>
-                                    <input type="text" id="lastName" class="form-control" required>
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Email Address</label>
-                                <input type="email" id="email" class="form-control" required>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Password</label>
-                                <input type="password" id="password" class="form-control" minlength="6" required>
-                            </div>
-                            <div id="alertBox" class="alert d-none"></div>
-                            <button type="submit" id="btnRegister" class="btn btn-primary w-100">Register</button>
-                        </form>
-                        <div class="text-center mt-3">
-                            <a href="login.html" class="text-decoration-none">Already have an account? Login here.</a>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Middle Name</label>
+                        <input type="text" id="middleName" class="form-control" placeholder="Optional">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Suffix</label>
+                        <input type="text" id="suffix" class="form-control" placeholder="Jr., III">
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Last Name <span class="text-danger">*</span></label>
+                        <input type="text" id="lastName" class="form-control" required placeholder="e.g., Dela Cruz">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Mobile Number <span class="text-danger">*</span></label>
+                        <input type="tel" id="contactNumber" class="form-control" required placeholder="09XX-XXX-XXXX">
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Barangay (Tayabas City) <span class="text-danger">*</span></label>
+                        <input type="text" id="barangay" class="form-control" required placeholder="e.g., Wakas, Mateuna, Angustias">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">House No. / Street / Purok <span class="text-danger">*</span></label>
+                        <input type="text" id="address" class="form-control" required placeholder="e.g., Purok 2, Brgy. Wakas">
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Email Address <span class="text-danger">*</span></label>
+                        <input type="email" id="email" class="form-control" required placeholder="you@example.com">
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Password <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="password" id="password" class="form-control" required minlength="6" placeholder="Minimum 6 characters">
+                            <span class="input-group-text password-toggle" id="togglePassword">
+                                <i class="bi bi-eye-slash" id="toggleIcon"></i>
+                            </span>
                         </div>
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Confirm Password <span class="text-danger">*</span></label>
+                        <input type="password" id="confirmPassword" class="form-control" required minlength="6" placeholder="Re-enter password">
+                    </div>
                 </div>
-            </div>
+
+                <div class="alert alert-light border small mt-3 mb-3">
+                    <i class="bi bi-info-circle text-primary"></i> Public registration creates a citizen <strong>Applicant</strong> account. Internal LGU employee accounts are provisioned exclusively by the System Administrator.
+                </div>
+
+                <button type="submit" id="btnRegister" class="btn btn-primary w-100 py-2 fw-bold mb-3">
+                    Create Applicant Account
+                </button>
+
+                <div class="text-center">
+                    <a href="login.html" class="text-decoration-none">Already have an account? Login here.</a>
+                </div>
+            </form>
         </div>
     </div>
 
     <script src="assets/js/supabase.js"></script>
-    <script src="assets/js/utils.js"></script>
-    <script src="assets/js/auth.js"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', checkAuthAndRoute);
-        
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.location.protocol === 'file:') {
+                document.getElementById('fileProtocolWarning').style.display = 'block';
+            }
+        });
+
+        // Password Visibility Toggle
+        document.getElementById('togglePassword').addEventListener('click', function () {
+            const passwordInput = document.getElementById('password');
+            const confirmInput = document.getElementById('confirmPassword');
+            const icon = document.getElementById('toggleIcon');
+
+            const isPassword = passwordInput.type === 'password';
+            passwordInput.type = isPassword ? 'text' : 'password';
+            confirmInput.type = isPassword ? 'text' : 'password';
+            icon.classList.toggle('bi-eye-slash', !isPassword);
+            icon.classList.toggle('bi-eye', isPassword);
+        });
+
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            showLoader('btnRegister');
-            const alertBox = document.getElementById('alertBox');
-            
-            const email = document.getElementById('email').value;
+
+            const errorDiv = document.getElementById('registerError');
+            const successDiv = document.getElementById('registerSuccess');
+            const btn = document.getElementById('btnRegister');
+
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+
+            const firstName = document.getElementById('firstName').value.trim();
+            const middleName = document.getElementById('middleName').value.trim();
+            const lastName = document.getElementById('lastName').value.trim();
+            const suffix = document.getElementById('suffix').value.trim();
+            const contactNumber = document.getElementById('contactNumber').value.trim();
+            const barangay = document.getElementById('barangay').value.trim();
+            const address = document.getElementById('address').value.trim();
+            const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value;
-            const firstName = document.getElementById('firstName').value;
-            const lastName = document.getElementById('lastName').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
 
-            const { data, error } = await supabase.auth.signUp({
-                email: email,
-                password: password,
-                options: { data: { first_name: firstName, last_name: lastName } }
-            });
+            if (password !== confirmPassword) {
+                errorDiv.innerText = 'Passwords do not match. Please re-enter your password.';
+                errorDiv.style.display = 'block';
+                return;
+            }
 
-            hideLoader('btnRegister');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating Account...';
 
-            if (error) {
-                alertBox.className = 'alert alert-danger d-block';
-                alertBox.textContent = error.message;
-            } else {
-                alertBox.className = 'alert alert-success d-block';
-                alertBox.textContent = 'Registration successful! You can now log in.';
-                document.getElementById('registerForm').reset();
+            try {
+                const { data, error } = await supabase.auth.signUp({
+                    email: email,
+                    password: password,
+                    options: {
+                        data: {
+                            first_name: firstName,
+                            middle_name: middleName,
+                            last_name: lastName,
+                            suffix: suffix,
+                            contact_number: contactNumber,
+                            barangay: barangay,
+                            address: address
+                        }
+                    }
+                });
+
+                if (error) {
+                    throw error;
+                }
+
+                // If email confirmation is disabled, Supabase returns an active session immediately
+                if (data.session && data.user) {
+                    await supabase
+                        .from('profiles')
+                        .update({
+                            first_name: firstName,
+                            middle_name: middleName || null,
+                            last_name: lastName,
+                            suffix: suffix || null,
+                            contact_number: contactNumber,
+                            barangay: barangay,
+                            address: address
+                        })
+                        .eq('id', data.user.id);
+
+                    successDiv.innerText = 'Account created successfully! Redirecting to your Applicant Dashboard...';
+                    successDiv.style.display = 'block';
+                    setTimeout(() => {
+                        window.location.href = 'applicant/dashboard.html';
+                    }, 1200);
+                } else {
+                    // Email confirmation is enabled in Supabase project settings
+                    successDiv.innerHTML = '<strong>Registration Submitted!</strong> Please check your email inbox to confirm your account, then return to <a href="login.html" class="alert-link">Login</a>.';
+                    successDiv.style.display = 'block';
+                    document.getElementById('registerForm').reset();
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            } catch (err) {
+                console.error('Registration error:', err);
+                let friendlyMsg = err.message || 'Unable to create account.';
+                if (friendlyMsg.toLowerCase().includes('rate limit')) {
+                    friendlyMsg = 'Supabase email rate limit reached. Go to Supabase Dashboard → Authentication → Providers → Email and turn OFF "Confirm email" for testing, or wait a few minutes.';
+                }
+                errorDiv.innerText = 'Registration Error: ' + friendlyMsg;
+                errorDiv.style.display = 'block';
+                btn.disabled = false;
+                btn.innerHTML = originalText;
             }
         });
     </script>
