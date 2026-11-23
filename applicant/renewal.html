@@ -36,7 +36,6 @@
 
         <div id="formAlert" class="alert" style="display: none;"></div>
 
-        <!-- Loading State -->
         <div id="loadingEligibleBox" class="card shadow-sm border-0 text-center py-5">
             <div class="card-body">
                 <div class="spinner-border text-primary" role="status"></div>
@@ -44,21 +43,21 @@
             </div>
         </div>
 
-        <!-- Empty State if Applicant has no Active/Expired MTOP -->
         <div id="noEligibleMtopBox" class="card shadow-sm border-0 text-center py-5" style="display: none;">
             <div class="card-body">
                 <i class="bi bi-exclamation-circle text-warning" style="font-size: 3rem;"></i>
                 <h5 class="mt-3 fw-bold">No Eligible MTOP Franchise Found</h5>
-                <p class="text-muted">
+                <p class="text-muted" id="noEligibleReasonText">
                     You must have an existing <strong>Active</strong> or <strong>Expired</strong> MTOP franchise record before submitting a Renewal application.
                 </p>
-                <a href="new-application.html" class="btn btn-success fw-bold">+ Apply for a New MTOP Instead</a>
+                <div class="d-flex justify-content-center gap-2 mt-3">
+                    <a href="dashboard.html" class="btn btn-primary fw-bold">Return to Dashboard</a>
+                    <a href="new-application.html" class="btn btn-outline-success">+ Apply for a New MTOP</a>
+                </div>
             </div>
         </div>
 
-        <!-- Renewal Form -->
         <form id="renewalForm" style="display: none;">
-            <!-- Section 1: Select Existing MTOP & Review Vehicle Info -->
             <div class="card shadow-sm border-0 mb-4">
                 <div class="card-header bg-white py-3">
                     <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-award"></i> 1. Select MTOP Franchise to Renew</h5>
@@ -70,10 +69,8 @@
                         <div class="form-text">Your previous MTOP record will be preserved in LGU history and linked to your renewed franchise.</div>
                     </div>
 
-                    <!-- Selected MTOP & Vehicle Summary Panel -->
                     <div id="selectedMtopSummary" class="border rounded p-3 bg-light mb-3"></div>
 
-                    <!-- Optional Non-CR Updates -->
                     <h6 class="fw-bold text-secondary mt-4 mb-2">Optional Vehicle Updates</h6>
                     <p class="small text-muted mb-3">
                         Core LTO registration identifiers (Plate, Engine, and Chassis numbers) are locked to your existing franchise. You may update your tricycle's current paint color, year model, or motor number below if needed:
@@ -95,7 +92,6 @@
                 </div>
             </div>
 
-            <!-- Section 2: Official LGU Renewal Documentary Requirements -->
             <div class="card shadow-sm border-0 mb-4">
                 <div class="card-header bg-white py-3">
                     <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-file-earmark-check"></i> 2. Official LGU Renewal Documentary Requirements</h5>
@@ -125,7 +121,6 @@
                 </div>
             </div>
 
-            <!-- Section 3: Current Tricycle Unit Photos for Traffic Office Review -->
             <div class="card shadow-sm border-0 mb-4">
                 <div class="card-header bg-white py-3">
                     <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-camera-fill"></i> 3. Current Tricycle Unit Photos for Traffic Office Review</h5>
@@ -161,8 +156,9 @@
     <script src="../assets/js/supabase.js"></script>
     <script src="../assets/js/utils.js"></script>
     <script src="../assets/js/auth.js"></script>
+    <script src="../assets/js/eligibility.js"></script>
     <script>
-        const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+        const MAX_FILE_SIZE = 5 * 1024 * 1024;
         const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
         const ALLOWED_PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -191,50 +187,71 @@
         async function loadEligibleMtops() {
             const loadingBox = document.getElementById('loadingEligibleBox');
             const emptyBox = document.getElementById('noEligibleMtopBox');
+            const reasonEl = document.getElementById('noEligibleReasonText');
             const form = document.getElementById('renewalForm');
             const selectEl = document.getElementById('mtopSelect');
 
-            const { data, error } = await supabase
-                .from('mtop_records')
-                .select(`
-                    id, mtop_number, issue_date, expiration_date, status,
-                    vehicles ( id, plate_number, make, model, year_model, color, engine_number, chassis_number, motor_number )
-                `)
-                .eq('applicant_id', currentUser.id)
-                .in('status', ['ACTIVE', 'EXPIRED'])
-                .order('created_at', { ascending: false });
+            try {
+                const state = await getApplicantEligibilityState(currentUser.id);
 
-            loadingBox.style.display = 'none';
+                if (!state.canRenew || state.eligibleRenewalMtops.length === 0) {
+                    loadingBox.style.display = 'none';
+                    if (reasonEl && state.renewBlockedReason) {
+                        reasonEl.textContent = state.renewBlockedReason;
+                    }
+                    emptyBox.style.display = 'block';
+                    return;
+                }
 
-            if (error) {
+                const eligibleIds = state.eligibleRenewalMtops.map(m => m.id);
+                const { data, error } = await supabase
+                    .from('mtop_records')
+                    .select(`
+                        id, mtop_number, issue_date, expiration_date, status,
+                        vehicles ( id, plate_number, make, model, year_model, color, engine_number, chassis_number, motor_number )
+                    `)
+                    .eq('applicant_id', currentUser.id)
+                    .in('id', eligibleIds)
+                    .order('created_at', { ascending: false });
+
+                loadingBox.style.display = 'none';
+
+                if (error) {
+                    const alertBox = document.getElementById('formAlert');
+                    alertBox.className = 'alert alert-danger';
+                    alertBox.innerText = 'Error loading MTOP records: ' + error.message;
+                    alertBox.style.display = 'block';
+                    return;
+                }
+
+                if (!data || data.length === 0) {
+                    emptyBox.style.display = 'block';
+                    return;
+                }
+
+                eligibleMtops = data;
+                selectEl.innerHTML = data.map(m => {
+                    const plate = m.vehicles?.plate_number || 'No Plate';
+                    const unit = `${m.vehicles?.make || ''} ${m.vehicles?.model || ''}`.trim();
+                    return `<option value="${m.id}">${m.mtop_number} — Plate: ${plate} (${unit}) [${m.status}]</option>`;
+                }).join('');
+
+                const preselectedId = new URLSearchParams(window.location.search).get('mtop_id');
+                if (preselectedId && data.some(m => m.id === preselectedId)) {
+                    selectEl.value = preselectedId;
+                }
+
+                renderSelectedMtopDetails(selectEl.value);
+                selectEl.addEventListener('change', () => renderSelectedMtopDetails(selectEl.value));
+
+                form.style.display = 'block';
+            } catch (err) {
+                loadingBox.style.display = 'none';
                 const alertBox = document.getElementById('formAlert');
                 alertBox.className = 'alert alert-danger';
-                alertBox.innerText = 'Error loading MTOP records: ' + error.message;
+                alertBox.innerText = 'Error checking renewal eligibility: ' + err.message;
                 alertBox.style.display = 'block';
-                return;
             }
-
-            if (!data || data.length === 0) {
-                emptyBox.style.display = 'block';
-                return;
-            }
-
-            eligibleMtops = data;
-            selectEl.innerHTML = data.map(m => {
-                const plate = m.vehicles?.plate_number || 'No Plate';
-                const unit = `${m.vehicles?.make || ''} ${m.vehicles?.model || ''}`.trim();
-                return `<option value="${m.id}">${m.mtop_number} — Plate: ${plate} (${unit}) [${m.status}]</option>`;
-            }).join('');
-
-            const preselectedId = new URLSearchParams(window.location.search).get('mtop_id');
-            if (preselectedId && data.some(m => m.id === preselectedId)) {
-                selectEl.value = preselectedId;
-            }
-
-            renderSelectedMtopDetails(selectEl.value);
-            selectEl.addEventListener('change', () => renderSelectedMtopDetails(selectEl.value));
-
-            form.style.display = 'block';
         }
 
         function renderSelectedMtopDetails(mtopId) {
@@ -361,8 +378,15 @@
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Validating Renewal...';
 
             try {
+                const state = await getApplicantEligibilityState(currentUser.id);
+                if (!state.canRenew) {
+                    throw new Error(state.renewBlockedReason);
+                }
+
                 const previousMtopId = document.getElementById('mtopSelect').value;
-                if (!previousMtopId) throw new Error('Please select an MTOP franchise to renew.');
+                if (!previousMtopId || !state.eligibleRenewalMtops.some(m => m.id === previousMtopId)) {
+                    throw new Error('Please select a valid, eligible MTOP franchise to renew.');
+                }
 
                 const fOrcr = document.getElementById('docOrcr').files[0];
                 const fCedula = document.getElementById('docCedula').files[0];
@@ -386,7 +410,6 @@
                 const updatedColor = document.getElementById('updateColor').value.trim() || null;
                 const updatedMotor = document.getElementById('updateMotorNumber').value.trim() || null;
 
-                // 1. Submit MTOP Renewal via concurrency-safe RPC (REN-YYYY-000001)
                 btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating Renewal Application...';
                 const { data: appId, error: rpcError } = await supabase.rpc('create_renewal_application', {
                     p_applicant_id: currentUser.id,
@@ -398,14 +421,12 @@
 
                 if (rpcError) throw new Error(rpcError.message);
 
-                // 2. Upload the 4 Official Tayabas City Renewal Documents
                 btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading Renewal Documents...';
                 await uploadAndRecordFile(appId, fOrcr, 'OR_CR');
                 await uploadAndRecordFile(appId, fCedula, 'CEDULA');
                 await uploadAndRecordFile(appId, fGovId, 'GOVERNMENT_ID');
                 await uploadAndRecordFile(appId, fPrevMtop, 'PREVIOUS_MTOP');
 
-                // 3. Upload Updated Tricycle Unit Photos
                 btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading Tricycle Unit Photos...';
                 for (const photo of tricyclePhotos) {
                     await uploadAndRecordFile(appId, photo, 'TRICYCLE_UNIT_PHOTO');

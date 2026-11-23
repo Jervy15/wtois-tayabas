@@ -3,116 +3,336 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Drop MTOP | WTOIS</title>
+    <title>MTOP Dropping Application | WTOIS Tayabas City</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-light">
-    <nav class="navbar navbar-dark bg-primary mb-4">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
         <div class="container">
-            <a class="navbar-brand" href="dashboard.html">← Back to Dashboard</a>
+            <a class="navbar-brand fw-bold" href="dashboard.html">WTOIS Citizen Portal</a>
+            <div class="d-flex gap-2">
+                <a href="my-mtop.html" class="btn btn-outline-light btn-sm">My MTOP</a>
+                <a href="dashboard.html" class="btn btn-outline-light btn-sm">← Back to Dashboard</a>
+            </div>
         </div>
     </nav>
 
-    <div class="container mb-5">
-        <div class="card shadow-sm border-warning">
-            <div class="card-header bg-warning py-3">
-                <h4 class="mb-0 text-dark">Drop MTOP Franchise</h4>
-            </div>
-            <div class="card-body p-4">
-                <form id="droppingForm">
-                    <div class="mb-3">
-                        <label class="form-label">Plate Number of Franchise to Drop <span class="text-danger">*</span></label>
-                        <input type="text" id="plateNumber" class="form-control" required>
-                    </div>
-                    <div class="mb-4">
-                        <label class="form-label">Reason for Dropping <span class="text-danger">*</span></label>
-                        <select id="dropReason" class="form-select" required>
-                            <option value="">Select a reason...</option>
-                            <option value="Change of Owner">Change of Owner</option>
-                            <option value="Change of Motor">Change of Motor</option>
-                            <option value="Voluntary Surrender">Voluntary Surrender</option>
-                        </select>
-                    </div>
+    <div class="container mb-5" style="max-width: 900px;">
+        <div class="mb-4">
+            <h3 class="fw-bold mb-1 text-danger"><i class="bi bi-x-octagon"></i> MTOP Franchise Dropping</h3>
+            <p class="text-muted mb-0">Cancellation & Surrender of Motorized Tricycle Operator's Permit — LGU Tayabas City</p>
+        </div>
 
-                    <h5 class="border-bottom pb-2 mb-3">Required Documents</h5>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">1. Certificate of Registration (OR/CR) <span class="text-danger">*</span></label>
-                        <input type="file" id="docORCR" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">2. Government-Issued ID <span class="text-danger">*</span></label>
-                        <input type="file" id="docGovID" class="form-control" required>
-                    </div>
-                    <div class="mb-4 alert alert-warning">
-                        <strong>Important:</strong> You must physically surrender your Franchise Plate to the TFRB office after submitting this request.
-                    </div>
+        <div id="formAlert" class="alert" style="display: none;"></div>
 
-                    <div id="alertBox" class="alert d-none"></div>
-                    <button type="submit" id="btnSubmitApp" class="btn btn-warning btn-lg w-100 fw-bold">Submit Dropping Request</button>
-                </form>
+        <!-- Loading State -->
+        <div id="loadingEligibleBox" class="card shadow-sm border-0 text-center py-5">
+            <div class="card-body">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-2 mb-0">Checking your active MTOP franchise records...</p>
             </div>
         </div>
+
+        <!-- Empty State -->
+        <div id="noEligibleMtopBox" class="card shadow-sm border-0 text-center py-5" style="display: none;">
+            <div class="card-body">
+                <i class="bi bi-info-circle text-secondary" style="font-size: 3rem;"></i>
+                <h5 class="mt-3 fw-bold">No Active or Expired MTOP Franchise Found</h5>
+                <p class="text-muted">
+                    You currently have no <strong>Active</strong> or <strong>Expired</strong> MTOP franchise eligible for dropping.
+                </p>
+                <a href="dashboard.html" class="btn btn-primary fw-bold">Return to Dashboard</a>
+            </div>
+        </div>
+
+        <!-- Dropping Form -->
+        <form id="droppingForm" style="display: none;">
+            <div class="alert alert-warning border-warning small mb-4">
+                <strong><i class="bi bi-exclamation-triangle-fill"></i> Important Notice:</strong>
+                Dropping an MTOP permanently cancels your franchise authority to operate that tricycle unit for hire in Tayabas City. Once approved by the City Mayor's Office (CMO), a <strong>DROPPED</strong> franchise cannot be renewed.
+            </div>
+
+            <!-- Section 1: Select MTOP & Reason -->
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-award text-danger"></i> 1. Select MTOP Franchise to Drop</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">MTOP Franchise Record <span class="text-danger">*</span></label>
+                        <select id="mtopSelect" class="form-select form-select-lg" required></select>
+                    </div>
+
+                    <div id="selectedMtopSummary" class="border rounded p-3 bg-light mb-4"></div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Primary Reason for Dropping <span class="text-danger">*</span></label>
+                            <select id="droppingReason" class="form-select" required>
+                                <option value="">-- Select Reason --</option>
+                                <option value="Sale / Transfer of Tricycle Unit">Sale / Transfer of Tricycle Unit</option>
+                                <option value="Change / Replacement of Motorcycle Unit">Change / Replacement of Motorcycle Unit</option>
+                                <option value="Permanent Retirement / Ceasing Operations">Permanent Retirement / Ceasing Operations</option>
+                                <option value="Conversion to Private Use">Conversion to Private Use</option>
+                                <option value="Other Valid Reason">Other Valid Reason</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Additional Details / Remarks (Optional)</label>
+                            <input type="text" id="additionalNotes" class="form-control" placeholder="e.g., Buyer name or unit status">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2: Documentary Requirements -->
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-file-earmark-text text-danger"></i> 2. Official MTOP Dropping Requirements</h5>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-3">
+                        Upload clear scanned copies or photos (PDF, JPG, or PNG — max 5MB each) of the four required dropping documents:
+                    </p>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">1. Letter / Affidavit of Dropping Request <span class="text-danger">*</span></label>
+                            <input type="file" id="docDroppingReq" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">2. Current / Original MTOP Certificate <span class="text-danger">*</span></label>
+                            <input type="file" id="docOrigMtop" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">3. Certificate of Registration (OR/CR) <span class="text-danger">*</span></label>
+                            <input type="file" id="docOrcr" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">4. Government-Issued ID <span class="text-danger">*</span></label>
+                            <input type="file" id="docGovId" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-check mb-4">
+                <input class="form-check-input" type="checkbox" id="confirmDropCheck" required>
+                <label class="form-check-label small fw-bold" for="confirmDropCheck">
+                    I confirm that I am voluntarily surrendering this MTOP franchise and understand that it will be permanently marked as DROPPED upon approval.
+                </label>
+            </div>
+
+            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                <a href="dashboard.html" class="btn btn-outline-secondary px-4">Cancel</a>
+                <button type="submit" id="btnSubmitDropping" class="btn btn-danger btn-lg px-5 fw-bold">
+                    Submit MTOP Dropping Request
+                </button>
+            </div>
+        </form>
     </div>
 
     <script src="../assets/js/supabase.js"></script>
     <script src="../assets/js/utils.js"></script>
     <script src="../assets/js/auth.js"></script>
     <script>
+        const MAX_FILE_SIZE = 5 * 1024 * 1024;
+        const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
+
         let currentUser = null;
+        let eligibleMtops = [];
+
+        function generateSafeUuid() {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
 
         document.addEventListener('DOMContentLoaded', async () => {
             const auth = await checkAuthAndRoute();
-            if(auth) currentUser = auth.session.user;
+            if (!auth) return;
+            currentUser = auth.user;
+
+            await loadEligibleMtops();
         });
+
+        async function loadEligibleMtops() {
+            const loadingBox = document.getElementById('loadingEligibleBox');
+            const emptyBox = document.getElementById('noEligibleMtopBox');
+            const form = document.getElementById('droppingForm');
+            const selectEl = document.getElementById('mtopSelect');
+
+            const { data, error } = await supabase
+                .from('mtop_records')
+                .select(`
+                    id, mtop_number, issue_date, expiration_date, status,
+                    vehicles ( id, plate_number, make, model, year_model, color, engine_number, chassis_number )
+                `)
+                .eq('applicant_id', currentUser.id)
+                .in('status', ['ACTIVE', 'EXPIRED'])
+                .order('created_at', { ascending: false });
+
+            loadingBox.style.display = 'none';
+
+            if (error) {
+                const alertBox = document.getElementById('formAlert');
+                alertBox.className = 'alert alert-danger';
+                alertBox.innerText = 'Error loading MTOP records: ' + error.message;
+                alertBox.style.display = 'block';
+                return;
+            }
+
+            if (!data || data.length === 0) {
+                emptyBox.style.display = 'block';
+                return;
+            }
+
+            eligibleMtops = data;
+            selectEl.innerHTML = data.map(m => {
+                const plate = m.vehicles?.plate_number || 'No Plate';
+                const unit = `${m.vehicles?.make || ''} ${m.vehicles?.model || ''}`.trim();
+                return `<option value="${m.id}">${m.mtop_number} — Plate: ${plate} (${unit}) [${m.status}]</option>`;
+            }).join('');
+
+            const preselectedId = new URLSearchParams(window.location.search).get('mtop_id');
+            if (preselectedId && data.some(m => m.id === preselectedId)) {
+                selectEl.value = preselectedId;
+            }
+
+            renderSelectedMtopDetails(selectEl.value);
+            selectEl.addEventListener('change', () => renderSelectedMtopDetails(selectEl.value));
+
+            form.style.display = 'block';
+        }
+
+        function renderSelectedMtopDetails(mtopId) {
+            const mtop = eligibleMtops.find(m => m.id === mtopId);
+            if (!mtop) return;
+
+            const v = mtop.vehicles || {};
+            const badgeClass = mtop.status === 'ACTIVE' ? 'bg-success' : 'bg-warning text-dark';
+
+            document.getElementById('selectedMtopSummary').innerHTML = `
+                <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+                    <span class="fw-bold text-dark fs-5">${mtop.mtop_number}</span>
+                    <span class="badge ${badgeClass}">${mtop.status}</span>
+                </div>
+                <div class="row g-2 small">
+                    <div class="col-md-6"><strong>Issue Date:</strong> ${mtop.issue_date}</div>
+                    <div class="col-md-6"><strong>Expiration Date:</strong> ${mtop.expiration_date}</div>
+                    <div class="col-md-6"><strong>Plate Number:</strong> <span class="fw-bold">${v.plate_number || 'N/A'}</span></div>
+                    <div class="col-md-6"><strong>Make / Model:</strong> ${v.make || ''} ${v.model || ''}</div>
+                    <div class="col-md-6"><strong>Engine Number:</strong> <span class="font-monospace">${v.engine_number || 'N/A'}</span></div>
+                    <div class="col-md-6"><strong>Chassis Number:</strong> <span class="font-monospace">${v.chassis_number || 'N/A'}</span></div>
+                </div>
+            `;
+        }
+
+        function validateFile(file, label) {
+            if (!file) throw new Error(`Please select a file for ${label}.`);
+            if (!ALLOWED_DOC_MIMES.includes(file.type)) {
+                throw new Error(`Invalid file type for ${label}. Allowed: PDF, JPG, or PNG.`);
+            }
+            if (file.size > MAX_FILE_SIZE) {
+                throw new Error(`${label} exceeds the maximum 5MB file size.`);
+            }
+        }
+
+        async function uploadAndRecordFile(appId, file, docTypeCode) {
+            const ext = file.name.split('.').pop().toLowerCase();
+            const safeRandomName = `${docTypeCode}_${generateSafeUuid()}.${ext}`;
+            const storagePath = `${currentUser.id}/${appId}/${safeRandomName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('application-documents')
+                .upload(storagePath, file, {
+                    contentType: file.type,
+                    upsert: false
+                });
+
+            if (uploadError) {
+                throw new Error(`Storage upload failed (${file.name}): ${uploadError.message}`);
+            }
+
+            const { error: dbError } = await supabase
+                .from('application_documents')
+                .insert({
+                    application_id: appId,
+                    document_type: docTypeCode,
+                    storage_path: storagePath,
+                    original_file_name: file.name,
+                    mime_type: file.type,
+                    file_size: file.size,
+                    verification_status: 'SUBMITTED',
+                    uploaded_by: currentUser.id
+                });
+
+            if (dbError) {
+                throw new Error(`Database record failed (${file.name}): ${dbError.message}`);
+            }
+        }
 
         document.getElementById('droppingForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            showLoader('btnSubmitApp', 'Processing Request...');
-            const alertBox = document.getElementById('alertBox');
-            
-            try {
-                const { data: vehicle, error: vehicleErr } = await supabase.from('vehicles').insert([{
-                    applicant_id: currentUser.id,
-                    plate_number: document.getElementById('plateNumber').value,
-                    status: 'DROPPING_PENDING'
-                }]).select().single();
+            const alertBox = document.getElementById('formAlert');
+            const btn = document.getElementById('btnSubmitDropping');
+            alertBox.style.display = 'none';
 
-                const { data: appId, error: appErr } = await supabase.rpc('create_new_application', {
-                    p_applicant_id: currentUser.id, p_vehicle_id: vehicle.id, p_transaction_type: 'DROPPING'
+            const originalBtnText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Validating Request...';
+
+            try {
+                const mtopId = document.getElementById('mtopSelect').value;
+                const reason = document.getElementById('droppingReason').value;
+                const notes = document.getElementById('additionalNotes').value.trim();
+
+                if (!mtopId) throw new Error('Please select an MTOP franchise to drop.');
+                if (!reason) throw new Error('Please select a primary reason for dropping.');
+
+                const fDropReq = document.getElementById('docDroppingReq').files[0];
+                const fOrigMtop = document.getElementById('docOrigMtop').files[0];
+                const fOrcr = document.getElementById('docOrcr').files[0];
+                const fGovId = document.getElementById('docGovId').files[0];
+
+                validateFile(fDropReq, 'Letter / Affidavit of Dropping Request');
+                validateFile(fOrigMtop, 'Current / Original MTOP Certificate');
+                validateFile(fOrcr, 'Certificate of Registration (OR/CR)');
+                validateFile(fGovId, 'Government-Issued ID');
+
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating Dropping Application...';
+                const { data: appId, error: rpcError } = await supabase.rpc('create_dropping_application', {
+                    p_applicant_id: currentUser.id,
+                    p_mtop_id: mtopId,
+                    p_dropping_reason: reason,
+                    p_additional_notes: notes
                 });
 
-                if (appErr) throw new Error(appErr.message);
+                if (rpcError) throw new Error(rpcError.message);
 
-                const uploadDoc = async (inputId, docType) => {
-                    const file = document.getElementById(inputId).files[0];
-                    if (!file) return;
-                    const fileName = `${crypto.randomUUID()}.${file.name.split('.').pop()}`;
-                    const filePath = `${currentUser.id}/${appId}/${fileName}`;
-                    await supabase.storage.from('application-documents').upload(filePath, file);
-                    await supabase.from('application_documents').insert([{
-                        application_id: appId, document_type: docType, storage_path: filePath,
-                        original_file_name: file.name, uploaded_by: currentUser.id
-                    }]);
-                };
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading Dropping Requirements...';
+                await uploadAndRecordFile(appId, fDropReq, 'DROPPING_REQUEST');
+                await uploadAndRecordFile(appId, fOrigMtop, 'ORIGINAL_MTOP');
+                await uploadAndRecordFile(appId, fOrcr, 'OR_CR');
+                await uploadAndRecordFile(appId, fGovId, 'GOVERNMENT_ID');
 
-                await uploadDoc('docORCR', 'OR/CR');
-                await uploadDoc('docGovID', 'Government ID');
-
-                await supabase.from('applications').update({ 
-                    current_status: 'SUBMITTED', 
-                    submitted_at: new Date().toISOString(),
-                    remarks: `Reason: ${document.getElementById('dropReason').value}`
-                }).eq('id', appId);
-
-                alertBox.className = 'alert alert-success d-block';
-                alertBox.textContent = 'Dropping request submitted successfully!';
-                setTimeout(() => window.location.href = 'dashboard.html', 1500);
+                alert('MTOP Dropping Request submitted successfully!');
+                window.location.href = 'dashboard.html';
 
             } catch (err) {
-                alertBox.className = 'alert alert-danger d-block';
-                alertBox.textContent = err.message;
-                hideLoader('btnSubmitApp');
+                console.error(err);
+                alertBox.className = 'alert alert-danger';
+                alertBox.innerText = err.message;
+                alertBox.style.display = 'block';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                btn.disabled = false;
+                btn.innerHTML = originalBtnText;
             }
         });
     </script>

@@ -5,37 +5,66 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Application Details | WTOIS</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        .doc-preview-thumb {
+            max-height: 150px;
+            width: auto;
+            max-width: 100%;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
+            transition: transform 0.15s ease;
+        }
+        .doc-preview-thumb:hover {
+            transform: scale(1.02);
+        }
+    </style>
 </head>
 <body class="bg-light">
-    <nav class="navbar navbar-dark bg-primary mb-4">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
         <div class="container">
-            <a class="navbar-brand" href="dashboard.html">← Back to Dashboard</a>
+            <a class="navbar-brand fw-bold" href="dashboard.html">← Back to Dashboard</a>
+            <div class="d-flex gap-2">
+                <a href="my-mtop.html" class="btn btn-outline-light btn-sm">My MTOP</a>
+            </div>
         </div>
     </nav>
 
     <div class="container mb-5">
-        <div class="row">
-            <div class="col-md-8">
-                <div class="card shadow-sm mb-4">
-                    <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
-                        <h5 class="mb-0">Application Summary</h5>
-                        <div id="statusBadgeContainer"></div>
+        <div id="pageAlert" class="alert" style="display: none;"></div>
+
+        <div class="row g-4">
+            <!-- Left Column: Application Summary -->
+            <div class="col-lg-6">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 fw-bold text-dark">Application Summary</h5>
+                        <span id="summaryStatusBadge"></span>
                     </div>
-                    <div class="card-body" id="appDetailsContainer">
-                        <p class="text-center">Loading details...</p>
+                    <div class="card-body" id="applicationSummaryContainer">
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                            <span class="text-muted ms-2">Loading application summary...</span>
+                        </div>
                     </div>
                 </div>
             </div>
-            
-            <div class="col-md-4">
-                <div class="card shadow-sm">
-                    <div class="card-header bg-white py-3">
-                        <h6 class="mb-0">Submitted Documents</h6>
+
+            <!-- Right Column: Submitted Documents & Photos -->
+            <div class="col-lg-6">
+                <div class="card shadow-sm border-0">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 fw-bold text-dark">Submitted Documents</h5>
+                        <span class="badge bg-secondary" id="docCountBadge">0 files</span>
                     </div>
-                    <ul class="list-group list-group-flush" id="documentsList">
-                        <li class="list-group-item text-center text-muted">Loading documents...</li>
-                    </ul>
+                    <div class="card-body" id="submittedDocumentsContainer">
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                            <span class="text-muted ms-2">Loading submitted files...</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -45,98 +74,244 @@
     <script src="../assets/js/utils.js"></script>
     <script src="../assets/js/auth.js"></script>
     <script>
+        const currentAppId = new URLSearchParams(window.location.search).get('id');
         let currentUser = null;
-        let currentAppId = new URLSearchParams(window.location.search).get('id');
+
+        const DOC_LABELS = {
+            'OR_CR': 'Certificate of Registration (OR/CR)',
+            'CEDULA': 'Current-Year Cedula (CTC)',
+            'GOVERNMENT_ID': 'Government-Issued ID',
+            'COMELEC_CERT': 'COMELEC Certification',
+            'PREVIOUS_MTOP': "Copy of Previous Year's MTOP",
+            'ORIGINAL_MTOP': 'Current / Original MTOP Certificate',
+            'DROPPING_REQUEST': 'Letter / Affidavit of Dropping Request',
+            'TRICYCLE_UNIT_PHOTO': 'Tricycle Unit Photo'
+        };
+
+        const DOC_ORDER = {
+            'DROPPING_REQUEST': 1,
+            'ORIGINAL_MTOP': 2,
+            'OR_CR': 3,
+            'CEDULA': 4,
+            'GOVERNMENT_ID': 5,
+            'COMELEC_CERT': 6,
+            'PREVIOUS_MTOP': 7,
+            'TRICYCLE_UNIT_PHOTO': 8
+        };
 
         document.addEventListener('DOMContentLoaded', async () => {
             const auth = await checkAuthAndRoute();
-            if(!auth) return;
-            currentUser = auth.session.user;
-            
+            if (!auth) return;
+            currentUser = auth.user;
+
             if (!currentAppId) {
-                document.getElementById('appDetailsContainer').innerHTML = '<div class="alert alert-danger">No application ID provided.</div>';
+                showAlert('danger', 'No application ID was provided in the URL.');
                 return;
             }
 
-            loadApplicationDetails();
-            loadDocuments();
+            await loadApplicationSummary();
+            await loadSubmittedDocuments();
         });
 
-        async function loadApplicationDetails() {
-            const { data, error } = await supabase
+        function showAlert(type, message) {
+            const el = document.getElementById('pageAlert');
+            el.className = `alert alert-${type}`;
+            el.innerText = message;
+            el.style.display = 'block';
+        }
+
+        function renderAppStatusBadge(status) {
+            if (typeof getStatusBadge === 'function') {
+                return getStatusBadge(status);
+            }
+            const s = (status || 'SUBMITTED').toUpperCase();
+            let cls = 'bg-primary';
+            if (s === 'APPROVED') cls = 'bg-success';
+            else if (['REJECTED', 'CANCELLED', 'INSPECTION_FAILED'].includes(s)) cls = 'bg-danger';
+            else if (['FOR_INSPECTION', 'FOR_REINSPECTION', 'FOR_PAYMENT', 'FOR_APPROVAL'].includes(s)) cls = 'bg-warning text-dark';
+            return `<span class="badge ${cls}">${s}</span>`;
+        }
+
+        function formatSubmittedDate(isoString) {
+            if (!isoString) return 'N/A';
+            const dt = new Date(isoString);
+            const datePart = dt.toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric'
+            });
+            const timePart = dt.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+            return `${datePart} at ${timePart}`;
+        }
+
+        async function loadApplicationSummary() {
+            const container = document.getElementById('applicationSummaryContainer');
+            const badgeContainer = document.getElementById('summaryStatusBadge');
+
+            const { data: app, error } = await supabase
                 .from('applications')
                 .select(`
-                    *,
-                    vehicles ( plate_number, make, model, engine_number, chassis_number )
+                    id, application_number, applicant_id, transaction_type, current_status,
+                    submitted_at, remarks, previous_mtop_id,
+                    vehicles ( plate_number, make, model, year_model, color, engine_number, chassis_number )
                 `)
                 .eq('id', currentAppId)
+                .eq('applicant_id', currentUser.id)
                 .single();
 
-            if (error || !data) {
-                document.getElementById('appDetailsContainer').innerHTML = '<div class="alert alert-danger">Application not found.</div>';
+            if (error || !app) {
+                container.innerHTML = `<div class="alert alert-danger mb-0">Unable to load application: ${error?.message || 'Record not found.'}</div>`;
                 return;
             }
 
-            document.getElementById('statusBadgeContainer').innerHTML = getStatusBadge(data.current_status);
-            
-            document.getElementById('appDetailsContainer').innerHTML = `
-                <div class="row mb-3">
-                    <div class="col-sm-4 text-muted">Reference Number</div>
-                    <div class="col-sm-8 fw-bold">${data.application_number}</div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-sm-4 text-muted">Transaction Type</div>
-                    <div class="col-sm-8">${data.transaction_type}</div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-sm-4 text-muted">Date Submitted</div>
-                    <div class="col-sm-8">${formatDate(data.submitted_at || data.created_at)}</div>
-                </div>
-                <hr>
-                <h6>Vehicle Information</h6>
+            badgeContainer.innerHTML = renderAppStatusBadge(app.current_status);
+
+            let linkedMtopHtml = '';
+            if (app.previous_mtop_id) {
+                const { data: mtop } = await supabase
+                    .from('mtop_records')
+                    .select('mtop_number, status')
+                    .eq('id', app.previous_mtop_id)
+                    .maybeSingle();
+
+                if (mtop) {
+                    const label = app.transaction_type === 'DROPPING' ? 'Franchise to Drop' : 'Previous Franchise';
+                    linkedMtopHtml = `
+                        <div class="row mb-2">
+                            <div class="col-sm-5 text-muted">${label}</div>
+                            <div class="col-sm-7 fw-bold">${mtop.mtop_number} <span class="badge bg-secondary ms-1">${mtop.status}</span></div>
+                        </div>
+                    `;
+                }
+            }
+
+            const v = app.vehicles || {};
+            const makeModel = [v.make, v.model].filter(Boolean).join(' ') || 'N/A';
+            const engineChassis = [v.engine_number, v.chassis_number].filter(Boolean).join(' / ') || 'N/A';
+
+            container.innerHTML = `
                 <div class="row mb-2">
-                    <div class="col-sm-4 text-muted">Plate Number</div>
-                    <div class="col-sm-8">${data.vehicles.plate_number}</div>
+                    <div class="col-sm-5 text-muted">Reference Number</div>
+                    <div class="col-sm-7 fw-bold text-dark">${app.application_number}</div>
                 </div>
                 <div class="row mb-2">
-                    <div class="col-sm-4 text-muted">Make / Model</div>
-                    <div class="col-sm-8">${data.vehicles.make} ${data.vehicles.model || ''}</div>
+                    <div class="col-sm-5 text-muted">Transaction Type</div>
+                    <div class="col-sm-7">${app.transaction_type}</div>
                 </div>
                 <div class="row mb-2">
-                    <div class="col-sm-4 text-muted">Engine / Chassis</div>
-                    <div class="col-sm-8">${data.vehicles.engine_number} / ${data.vehicles.chassis_number}</div>
+                    <div class="col-sm-5 text-muted">Date Submitted</div>
+                    <div class="col-sm-7">${formatSubmittedDate(app.submitted_at)}</div>
                 </div>
+                ${linkedMtopHtml}
+                <hr class="my-3">
+                <h6 class="fw-bold text-dark mb-3">Vehicle Information</h6>
+                <div class="row mb-2">
+                    <div class="col-sm-5 text-muted">Plate Number</div>
+                    <div class="col-sm-7 fw-bold">${v.plate_number || 'N/A'}</div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-sm-5 text-muted">Make / Model</div>
+                    <div class="col-sm-7">${makeModel}</div>
+                </div>
+                <div class="row mb-0">
+                    <div class="col-sm-5 text-muted">Engine / Chassis</div>
+                    <div class="col-sm-7 font-monospace">${engineChassis}</div>
+                </div>
+                ${app.remarks ? `
+                    <hr class="my-3">
+                    <div class="small text-muted"><strong>Processing Notes:</strong> ${app.remarks}</div>
+                ` : ''}
             `;
         }
 
-        async function loadDocuments() {
-            const { data, error } = await supabase
-                .from('application_documents')
-                .select('*')
-                .eq('application_id', currentAppId);
+        async function loadSubmittedDocuments() {
+            const container = document.getElementById('submittedDocumentsContainer');
 
-            const docList = document.getElementById('documentsList');
-            
-            if (error || data.length === 0) {
-                docList.innerHTML = '<li class="list-group-item text-muted">No documents found.</li>';
+            const { data: docs, error } = await supabase
+                .from('application_documents')
+                .select('id, document_type, storage_path, original_file_name, mime_type, verification_status, uploaded_at')
+                .eq('application_id', currentAppId)
+                .neq('document_type', 'TRICYCLE_UNIT_PHOTO')
+                .order('uploaded_at', { ascending: true })
+                .order('id', { ascending: true });
+
+            if (error) {
+                container.innerHTML = `<div class="alert alert-danger mb-0">Error loading submitted documents: ${error.message}</div>`;
                 return;
             }
 
-            docList.innerHTML = data.map(doc => {
-                let badgeColor = doc.verification_status === 'VERIFIED' ? 'success' 
-                               : doc.verification_status === 'REJECTED' ? 'danger' 
-                               : 'warning';
+            const filteredDocs = (docs || []).filter(d => d.document_type !== 'TRICYCLE_UNIT_PHOTO');
+
+            const sortedDocs = filteredDocs.sort((a, b) => {
+                const orderA = DOC_ORDER[a.document_type] || 99;
+                const orderB = DOC_ORDER[b.document_type] || 99;
+                if (orderA !== orderB) return orderA - orderB;
+                return String(a.id).localeCompare(String(b.id));
+            });
+
+            document.getElementById('docCountBadge').innerText = `${sortedDocs.length} file(s)`;
+
+            if (sortedDocs.length === 0) {
+                container.innerHTML = `<div class="alert alert-warning mb-0">No documents were found for this application.</div>`;
+                return;
+            }
+
+            const cardsHtml = await Promise.all(sortedDocs.map(async (doc) => {
+                const { data: signedData, error: signError } = await supabase.storage
+                    .from('application-documents')
+                    .createSignedUrl(doc.storage_path, 3600);
+
+                const fileUrl = signedData?.signedUrl || '#';
+                const status = (doc.verification_status || 'SUBMITTED').toUpperCase();
+
+                let badgeClass = 'bg-warning text-dark';
+                if (status === 'VERIFIED') badgeClass = 'bg-success';
+                else if (status === 'REJECTED') badgeClass = 'bg-danger';
+
+                const friendlyLabel = DOC_LABELS[doc.document_type] || doc.document_type;
+                const mime = (doc.mime_type || '').toLowerCase();
+                const fileNameLower = (doc.original_file_name || '').toLowerCase();
+                const isImage = mime.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/.test(fileNameLower);
+
                 return `
-                <li class="list-group-item d-flex justify-content-between align-items-start py-3">
-                    <div class="ms-2 me-auto overflow-hidden pe-3">
-                        <div class="fw-bold">${doc.document_type}</div>
-                        <div class="text-muted small text-break">${doc.original_file_name}</div>
-                        ${doc.rejection_reason ? `<div class="text-danger small mt-1">Reason: ${doc.rejection_reason}</div>` : ''}
+                    <div class="border rounded p-3 mb-3 bg-white">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                            <div>
+                                <div class="fw-bold text-dark">${doc.document_type}</div>
+                                <div class="small text-muted">${friendlyLabel}</div>
+                                <div class="small text-secondary text-break">${doc.original_file_name || ''}</div>
+                            </div>
+                            <span class="badge ${badgeClass}">${status}</span>
+                        </div>
+
+                        ${signError ? `
+                            <div class="text-danger small mt-2">
+                                <i class="bi bi-exclamation-circle"></i> Preview unavailable: ${signError.message}
+                            </div>
+                        ` : `
+                            ${isImage && signedData?.signedUrl ? `
+                                <div class="mt-2 mb-2">
+                                    <a href="${fileUrl}" target="_blank" rel="noopener noreferrer" title="Click to open full-size photo">
+                                        <img src="${fileUrl}" alt="${doc.document_type}" class="doc-preview-thumb">
+                                    </a>
+                                </div>
+                            ` : ''}
+
+                            <div class="mt-2">
+                                <a href="${fileUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-eye"></i> ${isImage ? 'View Full Photo' : 'View Submitted File'}
+                                </a>
+                            </div>
+                        `}
                     </div>
-                    <span class="badge bg-${badgeColor} rounded-pill flex-shrink-0">${doc.verification_status}</span>
-                </li>
                 `;
-            }).join('');
+            }));
+
+            container.innerHTML = cardsHtml.join('');
         }
     </script>
 </body>

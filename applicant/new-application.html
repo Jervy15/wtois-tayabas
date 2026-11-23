@@ -144,6 +144,7 @@
     </div>
 
     <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/eligibility.js"></script>
     <script>
         const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
         const ALLOWED_DOC_MIMES = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -169,6 +170,27 @@
                 return;
             }
             currentUser = user;
+
+            try {
+                const state = await getApplicantEligibilityState(currentUser.id);
+                if (!state.canApplyNew) {
+                    const formEl = document.getElementById('newMtopForm');
+                    if (formEl) formEl.style.display = 'none';
+
+                    const alertBox = document.getElementById('formAlert');
+                    alertBox.className = 'alert alert-warning';
+                    alertBox.innerHTML = `
+                        <strong>New MTOP Application Unavailable:</strong> ${state.newBlockedReason}
+                        <div class="mt-2">
+                            <a href="dashboard.html" class="btn btn-primary btn-sm">Return to Dashboard</a>
+                            <a href="my-mtop.html" class="btn btn-outline-secondary btn-sm">View My MTOP</a>
+                        </div>
+                    `;
+                    alertBox.style.display = 'block';
+                }
+            } catch (err) {
+                console.error('Failed to verify New MTOP eligibility:', err);
+            }
         });
 
         // Live preview for Tricycle Unit Photos
@@ -269,6 +291,11 @@
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Validating & Submitting...';
 
             try {
+                const state = await getApplicantEligibilityState(currentUser.id);
+                if (!state.canApplyNew) {
+                    throw new Error(state.newBlockedReason);
+                }
+
                 const fOrcr = document.getElementById('docOrcr').files[0];
                 const fCedula = document.getElementById('docCedula').files[0];
                 const fGovId = document.getElementById('docGovId').files[0];

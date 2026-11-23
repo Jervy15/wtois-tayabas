@@ -5,209 +5,481 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Application Review | WTOIS LGU Portal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid px-4">
             <a class="navbar-brand" href="dashboard.html">← Back to Queue</a>
+            <span class="navbar-text text-white">TFRB Documentary Verification Module</span>
         </div>
     </nav>
 
-    <div class="container-fluid px-4 mb-5">
-        <div class="row">
-            <!-- Left Column: Details -->
-            <div class="col-md-7">
+    <div class="container mb-5">
+        <div id="pageAlert" class="alert" style="display: none;"></div>
+
+        <div class="row g-4">
+            <!-- Left Column: Application & Applicant Details + Forward Action -->
+            <div class="col-lg-6">
                 <div class="card shadow-sm mb-4">
-                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0 text-primary">Application Details</h5>
-                        <div id="statusBadgeContainer"></div>
+                    <div class="card-header bg-white py-3">
+                        <h5 class="mb-0 text-primary fw-bold"><i class="bi bi-person-badge"></i> Application & Operator Details</h5>
                     </div>
                     <div class="card-body" id="appDetailsContainer">
-                        <p class="text-center">Loading details...</p>
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                            <span class="text-muted ms-2">Loading application details...</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- LGU Action Panel -->
-                <div class="card shadow-sm border-primary">
+                <!-- Forward to CTMO Inspection Card -->
+                <div class="card shadow-sm border-primary" id="forwardCard" style="display: none;">
                     <div class="card-header bg-primary text-white py-3">
-                        <h6 class="mb-0">Stage Action: Document Verification</h6>
+                        <h6 class="mb-0 fw-bold"><i class="bi bi-check2-circle"></i> TFRB Verification Clearance</h6>
                     </div>
                     <div class="card-body">
-                        <p class="small text-muted mb-3">Ensure all documents are marked as VERIFIED before advancing the application to the CTMO Inspection stage.</p>
-                        <button class="btn btn-success w-100" id="btnAdvanceStage" onclick="advanceApplication()">
+                        <p class="small text-muted mb-3">
+                            Ensure all documents are marked as <strong>VERIFIED</strong> before advancing the application to the CTMO Inspection stage.
+                        </p>
+                        <button type="button" id="btnForwardInspection" class="btn btn-success w-100 fw-bold py-2">
                             All Documents Verified - Forward to Inspection
+                        </button>
+
+                        <hr class="my-3">
+                        <button type="button" id="btnRejectApplication" class="btn btn-outline-danger btn-sm w-100">
+                            Return / Reject Application for Deficient Documents
                         </button>
                     </div>
                 </div>
             </div>
-            
-            <!-- Right Column: Documents Validation -->
-            <div class="col-md-5">
+
+            <!-- Right Column: Submitted Requirements & Photos -->
+            <div class="col-lg-6">
                 <div class="card shadow-sm">
-                    <div class="card-header bg-white py-3">
-                        <h6 class="mb-0">Document Verification</h6>
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-folder-check text-primary"></i> Submitted Requirements</h5>
+                        <span class="badge bg-secondary" id="docCountBadge">0 files</span>
                     </div>
-                    <div class="card-body p-0">
-                        <ul class="list-group list-group-flush" id="documentsList">
-                            <li class="list-group-item text-center text-muted">Loading documents...</li>
-                        </ul>
+                    <div class="card-body" id="documentsContainer">
+                        <div class="text-center py-4">
+                            <div class="spinner-border spinner-border-sm text-primary"></div>
+                            <span class="text-muted ms-2">Loading submitted documents...</span>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Reject Reason Modal -->
-    <div class="modal fade" id="rejectModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title">Reject Document</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <label class="form-label">Reason for Rejection <span class="text-danger">*</span></label>
-                    <textarea id="rejectReason" class="form-control" rows="3" placeholder="e.g., Blurred image, expired ID..."></textarea>
-                    <input type="hidden" id="rejectDocId">
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-danger" onclick="submitRejection()">Confirm Rejection</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="../assets/js/supabase.js"></script>
     <script src="../assets/js/utils.js"></script>
     <script src="../assets/js/auth.js"></script>
     <script>
-        let currentAppId = new URLSearchParams(window.location.search).get('id');
-        let rejectModalInstance;
+        const currentAppId = new URLSearchParams(window.location.search).get('id');
+        let currentApp = null;
+        let currentDocuments = [];
+        let staffUser = null;
+
+        const DOC_LABELS = {
+            'OR_CR': 'Certificate of Registration (OR/CR)',
+            'CEDULA': 'Current-Year Cedula (CTC)',
+            'GOVERNMENT_ID': 'Government-Issued ID',
+            'COMELEC_CERT': 'COMELEC Certification',
+            'PREVIOUS_MTOP': "Copy of Previous Year's MTOP",
+            'TRICYCLE_UNIT_PHOTO': 'Tricycle Unit Photo'
+        };
+
+        // Fixed display sequence so requirement cards never shuffle or jump
+        const DOC_ORDER = {
+            'OR_CR': 1,
+            'CEDULA': 2,
+            'GOVERNMENT_ID': 3,
+            'COMELEC_CERT': 4,
+            'PREVIOUS_MTOP': 5,
+            'TRICYCLE_UNIT_PHOTO': 6
+        };
 
         document.addEventListener('DOMContentLoaded', async () => {
             const auth = await checkAuthAndRoute();
-            if(!auth) return;
-            
-            rejectModalInstance = new bootstrap.Modal(document.getElementById('rejectModal'));
-            
+            if (!auth) return;
+            staffUser = auth.user;
+
             if (!currentAppId) {
-                document.getElementById('appDetailsContainer').innerHTML = '<div class="alert alert-danger">No application ID provided.</div>';
+                showAlert('danger', 'No application ID was provided in the URL.');
                 return;
             }
 
-            loadApplicationDetails();
-            loadDocuments();
+            await loadApplicationDetails();
+            await loadDocuments();
         });
 
+        function showAlert(type, message) {
+            const el = document.getElementById('pageAlert');
+            el.className = `alert alert-${type}`;
+            el.innerText = message;
+            el.style.display = 'block';
+        }
+
         async function loadApplicationDetails() {
-            const { data, error } = await supabase
+            const container = document.getElementById('appDetailsContainer');
+
+            const { data: app, error } = await supabase
                 .from('applications')
-                .select(`*, vehicles ( plate_number, make, model, engine_number, chassis_number )`)
+                .select(`
+                    id, application_number, applicant_id, transaction_type, current_status, submitted_at, remarks, previous_mtop_id,
+                    vehicles ( plate_number, make, model, year_model, color, engine_number, chassis_number, motor_number )
+                `)
                 .eq('id', currentAppId)
                 .single();
 
-            if (error || !data) return;
+            if (error || !app) {
+                container.innerHTML = `<div class="alert alert-danger mb-0">Error loading application: ${error?.message || 'Not found'}</div>`;
+                return;
+            }
 
-            document.getElementById('statusBadgeContainer').innerHTML = getStatusBadge(data.current_status);
-            
-            document.getElementById('appDetailsContainer').innerHTML = `
-                <div class="row mb-2"><div class="col-sm-4 fw-bold">Ref Number</div><div class="col-sm-8">${data.application_number}</div></div>
-                <div class="row mb-2"><div class="col-sm-4 fw-bold">Type</div><div class="col-sm-8">${data.transaction_type}</div></div>
-                <div class="row mb-2"><div class="col-sm-4 fw-bold">Submitted</div><div class="col-sm-8">${formatDate(data.submitted_at)}</div></div>
+            currentApp = app;
+
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('first_name, middle_name, last_name, suffix, email, contact_number, address, barangay')
+                .eq('id', app.applicant_id)
+                .single();
+
+            let prevMtopHtml = '';
+            if (app.previous_mtop_id) {
+                const { data: prevMtop } = await supabase
+                    .from('mtop_records')
+                    .select('mtop_number, issue_date, expiration_date, status')
+                    .eq('id', app.previous_mtop_id)
+                    .maybeSingle();
+
+                if (prevMtop) {
+                    prevMtopHtml = `
+                        <div class="alert alert-info small mt-3 mb-0">
+                            <strong>Renewing Franchise:</strong> ${prevMtop.mtop_number}
+                            (Issued: ${prevMtop.issue_date} • Expires: ${prevMtop.expiration_date} • Status: ${prevMtop.status})
+                        </div>
+                    `;
+                }
+            }
+
+            const fullName = profile
+                ? [profile.first_name, profile.middle_name, profile.last_name, profile.suffix].filter(Boolean).join(' ')
+                : 'Unknown Applicant';
+
+            const fullAddress = profile
+                ? [profile.address, profile.barangay ? `Brgy. ${profile.barangay}` : '', 'Tayabas City'].filter(Boolean).join(', ')
+                : 'N/A';
+
+            const v = app.vehicles || {};
+
+            container.innerHTML = `
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Application Ref</div><div class="col-sm-8 fw-bold">${app.application_number} <span class="badge bg-secondary ms-1">${app.transaction_type}</span></div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Current Status</div><div class="col-sm-8">${getStatusBadge(app.current_status)}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Applicant Name</div><div class="col-sm-8 fw-bold">${fullName}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Contact / Email</div><div class="col-sm-8">${profile?.contact_number || 'N/A'} • ${profile?.email || 'N/A'}</div></div>
+                <div class="row mb-3"><div class="col-sm-4 text-muted">Address</div><div class="col-sm-8">${fullAddress}</div></div>
                 <hr>
-                <h6 class="fw-bold text-secondary">Vehicle Information</h6>
-                <div class="row mb-2"><div class="col-sm-4 fw-bold">Plate Number</div><div class="col-sm-8">${data.vehicles.plate_number}</div></div>
-                <div class="row mb-2"><div class="col-sm-4 fw-bold">Make/Model</div><div class="col-sm-8">${data.vehicles.make} ${data.vehicles.model || ''}</div></div>
-                <div class="row mb-2"><div class="col-sm-4 fw-bold">Engine/Chassis</div><div class="col-sm-8">${data.vehicles.engine_number} / ${data.vehicles.chassis_number}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Plate Number</div><div class="col-sm-8 fw-bold text-primary">${v.plate_number || 'N/A'}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Make / Model</div><div class="col-sm-8">${v.make || ''} ${v.model || ''} ${v.year_model ? '(' + v.year_model + ')' : ''}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Unit Color</div><div class="col-sm-8">${v.color || 'Not specified'}</div></div>
+                <div class="row mb-2"><div class="col-sm-4 text-muted">Engine Number</div><div class="col-sm-8 font-monospace">${v.engine_number || 'N/A'}</div></div>
+                <div class="row mb-0"><div class="col-sm-4 text-muted">Chassis Number</div><div class="col-sm-8 font-monospace">${v.chassis_number || 'N/A'}</div></div>
+                ${prevMtopHtml}
             `;
+
+            if (['SUBMITTED', 'DOCUMENT_VERIFICATION'].includes(app.current_status)) {
+                document.getElementById('forwardCard').style.display = 'block';
+            }
         }
 
         async function loadDocuments() {
-            const { data, error } = await supabase.from('application_documents').select('*').eq('application_id', currentAppId);
-            const docList = document.getElementById('documentsList');
-            
-            if (error || data.length === 0) {
-                docList.innerHTML = '<li class="list-group-item text-muted">No documents found.</li>';
+            const container = document.getElementById('documentsContainer');
+
+            const { data: docs, error } = await supabase
+                .from('application_documents')
+                .select('id, document_type, storage_path, original_file_name, mime_type, verification_status, uploaded_at')
+                .eq('application_id', currentAppId)
+                .order('uploaded_at', { ascending: true })
+                .order('id', { ascending: true });
+
+            if (error) {
+                container.innerHTML = `<div class="alert alert-danger mb-0">Error loading documents: ${error.message}</div>`;
                 return;
             }
 
-            docList.innerHTML = data.map(doc => {
-                let badgeColor = doc.verification_status === 'VERIFIED' ? 'success' : doc.verification_status === 'REJECTED' ? 'danger' : 'warning';
-                
-                // Fetch secure temporary URL to view the private file
-                const { data: fileUrl } = supabase.storage.from('application-documents').getPublicUrl(doc.storage_path);
+            // Sort deterministically by document type order, then UUID
+            currentDocuments = (docs || []).sort((a, b) => {
+                const orderA = DOC_ORDER[a.document_type] || 99;
+                const orderB = DOC_ORDER[b.document_type] || 99;
+                if (orderA !== orderB) return orderA - orderB;
+                return String(a.id).localeCompare(String(b.id));
+            });
+
+            document.getElementById('docCountBadge').innerText = `${currentDocuments.length} file(s)`;
+
+            if (currentDocuments.length === 0) {
+                container.innerHTML = `<div class="alert alert-warning mb-0">No documents found for this application.</div>`;
+                return;
+            }
+
+            let photoCounter = 0;
+
+            const cardsHtml = await Promise.all(currentDocuments.map(async (doc) => {
+                const { data: signedData, error: signError } = await supabase.storage
+                    .from('application-documents')
+                    .createSignedUrl(doc.storage_path, 3600);
+
+                const fileUrl = signedData?.signedUrl || '#';
+                const status = (doc.verification_status || 'SUBMITTED').toUpperCase();
+                const isVerified = status === 'VERIFIED';
+                const isRejected = status === 'REJECTED';
+
+                let badgeClass = 'bg-warning text-dark';
+                let cardBorderClass = 'border';
+                if (isVerified) {
+                    badgeClass = 'bg-success';
+                    cardBorderClass = 'border border-success';
+                } else if (isRejected) {
+                    badgeClass = 'bg-danger';
+                    cardBorderClass = 'border border-danger';
+                }
+
+                if (doc.document_type === 'TRICYCLE_UNIT_PHOTO') {
+                    photoCounter += 1;
+                }
+                const titleText = doc.document_type === 'TRICYCLE_UNIT_PHOTO'
+                    ? `${doc.document_type} #${photoCounter}`
+                    : doc.document_type;
+
+                const label = DOC_LABELS[doc.document_type] || doc.document_type;
+                const isImage = (doc.mime_type || '').startsWith('image/');
 
                 return `
-                <li class="list-group-item py-3">
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                        <div class="overflow-hidden pe-2">
-                            <div class="fw-bold">${doc.document_type}</div>
-                            <div class="text-muted small text-break"><a href="${fileUrl.publicUrl}" target="_blank">View File ↗</a></div>
+                    <div id="doc-card-${doc.id}" class="${cardBorderClass} rounded p-3 mb-3 bg-white">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <div>
+                                <div class="fw-bold text-dark">${titleText}</div>
+                                <div class="small text-muted">${label} — ${doc.original_file_name || ''}</div>
+                            </div>
+                            <span id="doc-badge-${doc.id}" class="badge ${badgeClass}">${status}</span>
                         </div>
-                        <span class="badge bg-${badgeColor} rounded-pill flex-shrink-0">${doc.verification_status}</span>
+
+                        <div class="mb-2">
+                            ${signError
+                                ? `<span class="text-danger small">Unable to generate link: ${signError.message}</span>`
+                                : `<a href="${fileUrl}" target="_blank" rel="noopener noreferrer" class="small fw-bold text-decoration-none">
+                                     View File <i class="bi bi-box-arrow-up-right"></i>
+                                   </a>`
+                            }
+                        </div>
+
+                        ${isImage && signedData?.signedUrl ? `
+                            <div class="mb-2">
+                                <a href="${fileUrl}" target="_blank" rel="noopener noreferrer">
+                                    <img src="${fileUrl}" alt="${titleText}" class="img-thumbnail" style="max-height: 130px; object-fit: cover;">
+                                </a>
+                            </div>
+                        ` : ''}
+
+                        <div class="row g-2 mt-1">
+                            <div class="col-6">
+                                <button type="button" id="btn-verify-${doc.id}"
+                                        class="btn ${isVerified ? 'btn-success' : 'btn-outline-success'} btn-sm w-100 fw-bold"
+                                        ${isVerified ? 'disabled' : ''}
+                                        onclick="updateDocStatus('${doc.id}', 'VERIFIED')">
+                                    ${isVerified ? '✓ Verified' : 'Verify'}
+                                </button>
+                            </div>
+                            <div class="col-6">
+                                <button type="button" id="btn-reject-${doc.id}"
+                                        class="btn ${isRejected ? 'btn-danger' : 'btn-outline-danger'} btn-sm w-100 fw-bold"
+                                        ${isRejected ? 'disabled' : ''}
+                                        onclick="updateDocStatus('${doc.id}', 'REJECTED')">
+                                    ${isRejected ? '✕ Rejected' : 'Reject'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    
-                    ${(doc.verification_status === 'PENDING' || doc.verification_status === 'SUBMITTED') ? `
-                    <div class="mt-2 d-flex gap-2">
-                        <button class="btn btn-sm btn-outline-success flex-grow-1" onclick="verifyDoc('${doc.id}')">Verify</button>
-                        <button class="btn btn-sm btn-outline-danger flex-grow-1" onclick="openRejectModal('${doc.id}')">Reject</button>
-                    </div>` : ''}
-
-                    ${doc.rejection_reason ? `<div class="text-danger small mt-2 bg-danger bg-opacity-10 p-2 rounded"><strong>Reason:</strong> ${doc.rejection_reason}</div>` : ''}
-                </li>
                 `;
-            }).join('');
+            }));
+
+            container.innerHTML = cardsHtml.join('');
+            updateForwardButtonState();
         }
 
-        async function verifyDoc(docId) {
-            if(!confirm("Mark this document as verified?")) return;
-            await supabase.from('application_documents').update({ verification_status: 'VERIFIED', rejection_reason: null }).eq('id', docId);
-            loadDocuments();
+        function updateForwardButtonState() {
+            const btn = document.getElementById('btnForwardInspection');
+            if (!btn) return;
+            const allVerified = currentDocuments.length > 0 &&
+                currentDocuments.every(d => (d.verification_status || '').toUpperCase() === 'VERIFIED');
+
+            btn.disabled = !allVerified;
+            btn.title = allVerified
+                ? 'Advance application to CTMO Inspection'
+                : 'Mark all submitted documents as VERIFIED first';
         }
 
-        function openRejectModal(docId) {
-            document.getElementById('rejectDocId').value = docId;
-            document.getElementById('rejectReason').value = '';
-            rejectModalInstance.show();
-        }
+        async function updateDocStatus(docId, newStatus) {
+            const verifyBtn = document.getElementById(`btn-verify-${docId}`);
+            const rejectBtn = document.getElementById(`btn-reject-${docId}`);
+            const badgeEl = document.getElementById(`doc-badge-${docId}`);
+            const cardEl = document.getElementById(`doc-card-${docId}`);
 
-        async function submitRejection() {
-            const docId = document.getElementById('rejectDocId').value;
-            const reason = document.getElementById('rejectReason').value;
-            if(!reason) { alert("Please provide a reason."); return; }
+            if (verifyBtn) verifyBtn.disabled = true;
+            if (rejectBtn) rejectBtn.disabled = true;
 
-            await supabase.from('application_documents').update({ verification_status: 'REJECTED', rejection_reason: reason }).eq('id', docId);
-            rejectModalInstance.hide();
-            loadDocuments();
-        }
-
-        async function advanceApplication() {
-            // Check if all docs are verified first
-            const { data: docs } = await supabase.from('application_documents').select('verification_status').eq('application_id', currentAppId);
-            const allVerified = docs.every(d => d.verification_status === 'VERIFIED');
-            
-            if (!allVerified) {
-                alert("You cannot advance this application. All documents must be marked as VERIFIED first.");
-                return;
+            const activeBtn = newStatus === 'VERIFIED' ? verifyBtn : rejectBtn;
+            if (activeBtn) {
+                activeBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
             }
 
-            if(confirm("Forward this application to CTMO for Inspection?")) {
-                // We added "const { error }" to catch the database block
-                const { error } = await supabase.from('applications')
-                    .update({ current_status: 'FOR_INSPECTION' })
-                    .eq('id', currentAppId);
+            try {
+                const { data: updatedRows, error } = await supabase
+                    .from('application_documents')
+                    .update({ verification_status: newStatus })
+                    .eq('id', docId)
+                    .select('id, verification_status');
 
-                if (error) {
-                    alert("Database Error: " + error.message);
-                } else {
-                    alert("Application advanced to FOR_INSPECTION.");
-                    window.location.href = 'dashboard.html';
+                if (error) throw error;
+
+                if (!updatedRows || updatedRows.length === 0) {
+                    throw new Error('Permission denied or 0 rows updated. Please run the application_documents UPDATE RLS policy in Supabase SQL Editor.');
+                }
+
+                // Update local state & DOM in-place so the card stays in its exact position
+                const docObj = currentDocuments.find(d => d.id === docId);
+                if (docObj) {
+                    docObj.verification_status = newStatus;
+                }
+
+                const isVerified = newStatus === 'VERIFIED';
+                const isRejected = newStatus === 'REJECTED';
+
+                if (badgeEl) {
+                    badgeEl.className = `badge ${isVerified ? 'bg-success' : 'bg-danger'}`;
+                    badgeEl.innerText = newStatus;
+                }
+
+                if (cardEl) {
+                    cardEl.className = `${isVerified ? 'border border-success' : 'border border-danger'} rounded p-3 mb-3 bg-white`;
+                }
+
+                if (verifyBtn) {
+                    verifyBtn.className = `btn ${isVerified ? 'btn-success' : 'btn-outline-success'} btn-sm w-100 fw-bold`;
+                    verifyBtn.innerHTML = isVerified ? '✓ Verified' : 'Verify';
+                    verifyBtn.disabled = isVerified;
+                }
+
+                if (rejectBtn) {
+                    rejectBtn.className = `btn ${isRejected ? 'btn-danger' : 'btn-outline-danger'} btn-sm w-100 fw-bold`;
+                    rejectBtn.innerHTML = isRejected ? '✕ Rejected' : 'Reject';
+                    rejectBtn.disabled = isRejected;
+                }
+
+                updateForwardButtonState();
+            } catch (err) {
+                alert('Failed to update document status: ' + err.message);
+                // Restore button state on failure
+                const docObj = currentDocuments.find(d => d.id === docId);
+                const prevStatus = (docObj?.verification_status || 'SUBMITTED').toUpperCase();
+                if (verifyBtn) {
+                    verifyBtn.className = `btn ${prevStatus === 'VERIFIED' ? 'btn-success' : 'btn-outline-success'} btn-sm w-100 fw-bold`;
+                    verifyBtn.innerHTML = prevStatus === 'VERIFIED' ? '✓ Verified' : 'Verify';
+                    verifyBtn.disabled = prevStatus === 'VERIFIED';
+                }
+                if (rejectBtn) {
+                    rejectBtn.className = `btn ${prevStatus === 'REJECTED' ? 'btn-danger' : 'btn-outline-danger'} btn-sm w-100 fw-bold`;
+                    rejectBtn.innerHTML = prevStatus === 'REJECTED' ? '✕ Rejected' : 'Reject';
+                    rejectBtn.disabled = prevStatus === 'REJECTED';
                 }
             }
         }
+
+        document.getElementById('btnForwardInspection').addEventListener('click', async () => {
+            const unverified = currentDocuments.filter(d => (d.verification_status || '').toUpperCase() !== 'VERIFIED');
+            if (unverified.length > 0) {
+                alert('Please verify all documents before forwarding to CTMO Inspection.');
+                return;
+            }
+
+            if (!confirm('Confirm all documents are verified and forward this application to CTMO Inspection?')) return;
+
+            const btn = document.getElementById('btnForwardInspection');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Forwarding to CTMO...';
+
+            try {
+                const { error: updateErr } = await supabase
+                    .from('applications')
+                    .update({
+                        current_status: 'FOR_INSPECTION',
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', currentAppId);
+
+                if (updateErr) throw updateErr;
+
+                await supabase.from('notifications').insert({
+                    recipient_user_id: currentApp.applicant_id,
+                    title: 'Documents Verified — Ready for Inspection',
+                    message: `Your documents for ${currentApp.application_number} have been verified by TFRB. Please bring your tricycle unit to the Traffic Office (CTMO) for inspection.`,
+                    notification_type: 'STATUS_UPDATED',
+                    related_application_id: currentAppId
+                });
+
+                await supabase.from('activity_logs').insert({
+                    actor_user_id: staffUser.id,
+                    applicant_id: currentApp.applicant_id,
+                    action: 'VERIFY DOCUMENTS',
+                    module: 'TFRB_VERIFICATION',
+                    target_type: 'applications',
+                    target_id: currentAppId,
+                    description: `Verified documents for ${currentApp.application_number} and forwarded to FOR_INSPECTION`
+                });
+
+                alert('Documents verified! Application forwarded to Traffic Office (CTMO) Inspection.');
+                window.location.href = 'dashboard.html';
+            } catch (err) {
+                alert('Error forwarding application: ' + err.message);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        });
+
+        document.getElementById('btnRejectApplication').addEventListener('click', async () => {
+            const reason = prompt('Enter reason for rejecting / returning this application:');
+            if (!reason || !reason.trim()) return;
+
+            const { error } = await supabase
+                .from('applications')
+                .update({
+                    current_status: 'REJECTED',
+                    remarks: 'TFRB Rejected: ' + reason.trim(),
+                    completed_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', currentAppId);
+
+            if (error) {
+                alert('Error rejecting application: ' + error.message);
+                return;
+            }
+
+            await supabase.from('notifications').insert({
+                recipient_user_id: currentApp.applicant_id,
+                title: 'Application Rejected by TFRB',
+                message: `Your application (${currentApp.application_number}) was rejected during document verification. Reason: ${reason.trim()}`,
+                notification_type: 'APPLICATION_REJECTED',
+                related_application_id: currentAppId
+            });
+
+            alert('Application rejected and applicant notified.');
+            window.location.href = 'dashboard.html';
+        });
     </script>
 </body>
 </html>

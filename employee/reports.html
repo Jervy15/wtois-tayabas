@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LGU Franchise Registry & Reports | WTOIS Tayabas City</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        .kpi-card {
+            border-left: 4px solid #0d6efd;
+            transition: transform 0.15s ease;
+        }
+        .kpi-card:hover {
+            transform: translateY(-2px);
+        }
+        .print-only-header {
+            display: none;
+        }
+        @media print {
+            @page {
+                size: landscape;
+                margin: 10mm;
+            }
+            body {
+                background: #ffffff !important;
+                font-size: 11px;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-only-header {
+                display: block !important;
+                text-align: center;
+                margin-bottom: 14px;
+                border-bottom: 2px solid #000;
+                padding-bottom: 8px;
+            }
+            .card {
+                border: none !important;
+                box-shadow: none !important;
+            }
+            .table {
+                font-size: 10.5px;
+            }
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4 no-print">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand fw-bold" href="dashboard.html">
+                <i class="bi bi-shield-check text-warning"></i> WTOIS LGU Staff Portal
+            </a>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <a href="dashboard.html" class="btn btn-outline-light btn-sm">← Employee Queue</a>
+                <button type="button" class="btn btn-light btn-sm fw-bold" onclick="logout()">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4 mb-5">
+        <!-- Official Print Header -->
+        <div class="print-only-header">
+            <div>Republic of the Philippines • Province of Quezon</div>
+            <div class="fw-bold fs-5">CITY GOVERNMENT OF TAYABAS</div>
+            <div class="fw-bold" id="printReportTitle">MTOP FRANCHISE REGISTRY & OPERATIONS REPORT</div>
+            <div class="small text-muted" id="printReportTimestamp"></div>
+        </div>
+
+        <!-- Page Title & Actions -->
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4 no-print">
+            <div>
+                <h3 class="fw-bold mb-1 text-dark"><i class="bi bi-bar-chart-line-fill text-primary"></i> LGU Franchise Registry & Reports</h3>
+                <p class="text-muted mb-0">Consolidated Tayabas City MTOP masterlist, application pipeline, and CTO revenue records</p>
+            </div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="small text-muted me-1" id="lastRefreshedLabel"></span>
+                <button type="button" id="btnRefreshData" class="btn btn-outline-secondary btn-sm fw-bold">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh Data
+                </button>
+                <button type="button" id="btnExportCsv" class="btn btn-success btn-sm fw-bold">
+                    <i class="bi bi-file-earmark-spreadsheet"></i> Export CSV
+                </button>
+                <button type="button" onclick="prepareAndPrint()" class="btn btn-primary btn-sm fw-bold">
+                    <i class="bi bi-printer"></i> Print Report
+                </button>
+            </div>
+        </div>
+
+        <div id="pageAlert" class="alert no-print" style="display: none;"></div>
+
+        <!-- Executive KPI Summary Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card shadow-sm border-0 kpi-card h-100" style="border-left-color: #198754;">
+                    <div class="card-body py-3">
+                        <div class="text-muted small fw-bold text-uppercase">Active MTOPs</div>
+                        <div class="fs-3 fw-bold text-success" id="kpiActiveMtops">0</div>
+                        <div class="small text-muted">Authorized units</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card shadow-sm border-0 kpi-card h-100" style="border-left-color: #0dcaf0;">
+                    <div class="card-body py-3">
+                        <div class="text-muted small fw-bold text-uppercase">Renewed / Historical</div>
+                        <div class="fs-3 fw-bold text-info" id="kpiRenewedMtops">0</div>
+                        <div class="small text-muted">Superseded cycles</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card shadow-sm border-0 kpi-card h-100" style="border-left-color: #ffc107;">
+                    <div class="card-body py-3">
+                        <div class="text-muted small fw-bold text-uppercase">Expired MTOPs</div>
+                        <div class="fs-3 fw-bold text-warning" id="kpiExpiredMtops">0</div>
+                        <div class="small text-muted">Due for renewal</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card shadow-sm border-0 kpi-card h-100" style="border-left-color: #dc3545;">
+                    <div class="card-body py-3">
+                        <div class="text-muted small fw-bold text-uppercase">Dropped MTOPs</div>
+                        <div class="fs-3 fw-bold text-danger" id="kpiDroppedMtops">0</div>
+                        <div class="small text-muted">Cancelled franchises</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card shadow-sm border-0 kpi-card h-100" style="border-left-color: #0d6efd;">
+                    <div class="card-body py-3">
+                        <div class="text-muted small fw-bold text-uppercase">In-Process Apps</div>
+                        <div class="fs-3 fw-bold text-primary" id="kpiInProcessApps">0</div>
+                        <div class="small text-muted">Across TFRB–CMO</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4 col-xl-2">
+                <div class="card shadow-sm border-0 kpi-card h-100" style="border-left-color: #20c997;">
+                    <div class="card-body py-3">
+                        <div class="text-muted small fw-bold text-uppercase">CTO Collections</div>
+                        <div class="fs-4 fw-bold text-dark mt-1" id="kpiTotalRevenue">₱0.00</div>
+                        <div class="small text-muted" id="kpiReceiptCount">0 O.R. issued</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Report Tabs -->
+        <ul class="nav nav-tabs mb-3 no-print" id="reportTabs">
+            <li class="nav-item">
+                <button class="nav-link active fw-bold" data-tab="franchise" type="button">
+                    <i class="bi bi-card-list"></i> 1. MTOP Franchise Masterlist
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link fw-bold" data-tab="applications" type="button">
+                    <i class="bi bi-folder2-open"></i> 2. Applications Pipeline Report
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link fw-bold" data-tab="collections" type="button">
+                    <i class="bi bi-cash-coin"></i> 3. CTO Revenue & O.R. Ledger
+                </button>
+            </li>
+        </ul>
+
+        <!-- TAB 1: MTOP FRANCHISE MASTERLIST -->
+        <div id="tab-franchise" class="report-panel">
+            <div class="card shadow-sm border-0 mb-3 no-print">
+                <div class="card-body">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold mb-1">Search MTOP / Operator / Plate</label>
+                            <input type="text" id="filterMtopSearch" class="form-control form-control-sm" placeholder="e.g., TAYABAS-MTOP, Shelby, ADAW1541...">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">Franchise Status</label>
+                            <select id="filterMtopStatus" class="form-select form-select-sm">
+                                <option value="ALL">All Statuses</option>
+                                <option value="ACTIVE">ACTIVE</option>
+                                <option value="RENEWED">RENEWED</option>
+                                <option value="EXPIRED">EXPIRED</option>
+                                <option value="DROPPED">DROPPED</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">Barangay</label>
+                            <select id="filterMtopBarangay" class="form-select form-select-sm">
+                                <option value="ALL">All Barangays</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="button" id="btnResetMtopFilters" class="btn btn-outline-secondary btn-sm">Reset Filters</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0 fw-bold">Tayabas City MTOP Franchise Registry</h6>
+                    <span class="badge bg-primary" id="mtopResultCount">0 record(s)</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>MTOP Number</th>
+                                    <th>Operator Name</th>
+                                    <th>Barangay / Address</th>
+                                    <th>Tricycle Unit & Plate</th>
+                                    <th>Engine / Chassis</th>
+                                    <th>Validity Period</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mtopTableBody">
+                                <tr><td colspan="7" class="text-center py-4 text-muted">Loading franchise registry...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: APPLICATIONS PIPELINE REPORT -->
+        <div id="tab-applications" class="report-panel" style="display: none;">
+            <div class="card shadow-sm border-0 mb-3 no-print">
+                <div class="card-body">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">Search Ref No. / Operator</label>
+                            <input type="text" id="filterAppSearch" class="form-control form-control-sm" placeholder="e.g., MTOP-2026, REN-, DRP-...">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">Transaction Type</label>
+                            <select id="filterAppType" class="form-select form-select-sm">
+                                <option value="ALL">All Types</option>
+                                <option value="NEW">NEW</option>
+                                <option value="RENEWAL">RENEWAL</option>
+                                <option value="DROPPING">DROPPING</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">Current Stage / Status</label>
+                            <select id="filterAppStatus" class="form-select form-select-sm">
+                                <option value="ALL">All Stages</option>
+                                <option value="SUBMITTED">SUBMITTED (TFRB)</option>
+                                <option value="FOR_INSPECTION">FOR_INSPECTION (CTMO)</option>
+                                <option value="FOR_REINSPECTION">FOR_REINSPECTION (CTMO)</option>
+                                <option value="FOR_PAYMENT">FOR_PAYMENT (CTO)</option>
+                                <option value="FOR_APPROVAL">FOR_APPROVAL (CMO)</option>
+                                <option value="APPROVED">APPROVED</option>
+                                <option value="REJECTED">REJECTED</option>
+                                <option value="INSPECTION_FAILED">INSPECTION_FAILED</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">From Date</label>
+                            <input type="date" id="filterAppDateFrom" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small fw-bold mb-1">To Date</label>
+                            <input type="date" id="filterAppDateTo" class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0 fw-bold">Applications Summary & Workflow Status</h6>
+                    <span class="badge bg-primary" id="appResultCount">0 record(s)</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Reference No.</th>
+                                    <th>Transaction</th>
+                                    <th>Operator</th>
+                                    <th>Plate & Unit</th>
+                                    <th>Date Submitted</th>
+                                    <th>Current Status</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody id="appTableBody">
+                                <tr><td colspan="7" class="text-center py-4 text-muted">Loading applications...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: CTO REVENUE & O.R. LEDGER -->
+        <div id="tab-collections" class="report-panel" style="display: none;">
+            <div class="card shadow-sm border-0 mb-3 no-print">
+                <div class="card-body">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold mb-1">Search O.R. No. / Ref No. / Payor</label>
+                            <input type="text" id="filterPaySearch" class="form-control form-control-sm" placeholder="e.g., OR-518415523, Shelby...">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">From Payment Date</label>
+                            <input type="date" id="filterPayDateFrom" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold mb-1">To Payment Date</label>
+                            <input type="date" id="filterPayDateTo" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="button" id="btnResetPayFilters" class="btn btn-outline-secondary btn-sm">Reset Filters</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0 fw-bold">City Treasurer's Office (CTO) Official Receipt Ledger</h6>
+                    <div>
+                        <span class="badge bg-secondary me-1" id="payResultCount">0 O.R.(s)</span>
+                        <span class="badge bg-success fs-6" id="payFilteredTotal">Total: ₱0.00</span>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>O.R. Number</th>
+                                    <th>Application Ref</th>
+                                    <th>Transaction</th>
+                                    <th>Operator / Payor</th>
+                                    <th>Payment Date</th>
+                                    <th class="text-end">Amount Paid</th>
+                                </tr>
+                            </thead>
+                            <tbody id="payTableBody">
+                                <tr><td colspan="6" class="text-center py-4 text-muted">Loading CTO collections...</td></tr>
+                            </tbody>
+                            <tfoot class="table-light fw-bold">
+                                <tr>
+                                    <td colspan="5" class="text-end">FILTERED COLLECTION SUBTOTAL:</td>
+                                    <td class="text-end text-success" id="payFooterTotal">₱0.00</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../assets/js/supabase.js"></script>
+    <script src="../assets/js/utils.js"></script>
+    <script src="../assets/js/auth.js"></script>
+    <script>
+        let activeTab = 'franchise';
+        let allMtops = [];
+        let allApps = [];
+        let allPayments = [];
+        let profilesMap = {};
+        let vehiclesMap = {};
+        let appsMap = {};
+
+        let filteredMtops = [];
+        let filteredApps = [];
+        let filteredPayments = [];
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const auth = await checkAuthAndRoute();
+            if (!auth) return;
+
+            setupTabNavigation();
+            setupFilterListeners();
+            await loadAllReportData();
+        });
+
+        function setupTabNavigation() {
+            document.querySelectorAll('#reportTabs .nav-link').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('#reportTabs .nav-link').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    activeTab = btn.getAttribute('data-tab');
+
+                    document.querySelectorAll('.report-panel').forEach(panel => {
+                        panel.style.display = 'none';
+                    });
+                    document.getElementById(`tab-${activeTab}`).style.display = 'block';
+                });
+            });
+        }
+
+        function setupFilterListeners() {
+            ['filterMtopSearch', 'filterMtopStatus', 'filterMtopBarangay'].forEach(id => {
+                document.getElementById(id).addEventListener('input', applyMtopFilters);
+                document.getElementById(id).addEventListener('change', applyMtopFilters);
+            });
+            document.getElementById('btnResetMtopFilters').addEventListener('click', () => {
+                document.getElementById('filterMtopSearch').value = '';
+                document.getElementById('filterMtopStatus').value = 'ALL';
+                document.getElementById('filterMtopBarangay').value = 'ALL';
+                applyMtopFilters();
+            });
+
+            ['filterAppSearch', 'filterAppType', 'filterAppStatus', 'filterAppDateFrom', 'filterAppDateTo'].forEach(id => {
+                document.getElementById(id).addEventListener('input', applyAppFilters);
+                document.getElementById(id).addEventListener('change', applyAppFilters);
+            });
+
+            ['filterPaySearch', 'filterPayDateFrom', 'filterPayDateTo'].forEach(id => {
+                document.getElementById(id).addEventListener('input', applyPayFilters);
+                document.getElementById(id).addEventListener('change', applyPayFilters);
+            });
+            document.getElementById('btnResetPayFilters').addEventListener('click', () => {
+                document.getElementById('filterPaySearch').value = '';
+                document.getElementById('filterPayDateFrom').value = '';
+                document.getElementById('filterPayDateTo').value = '';
+                applyPayFilters();
+            });
+
+            document.getElementById('btnRefreshData').addEventListener('click', loadAllReportData);
+            document.getElementById('btnExportCsv').addEventListener('click', exportCurrentTabCsv);
+        }
+
+        function getOperatorFullName(userId) {
+            const p = profilesMap[userId];
+            if (!p) return 'Unknown Operator';
+            const full = [p.first_name, p.middle_name, p.last_name, p.suffix].filter(Boolean).join(' ').trim();
+            return full || p.email || 'Unknown Operator';
+        }
+
+        function formatCurrency(val) {
+            return '₱' + Number(val || 0).toLocaleString('en-PH', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
+
+        async function loadAllReportData() {
+            const alertBox = document.getElementById('pageAlert');
+            const refreshBtn = document.getElementById('btnRefreshData');
+            const refreshedLabel = document.getElementById('lastRefreshedLabel');
+            alertBox.style.display = 'none';
+
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Refreshing...';
+            }
+
+            try {
+                const [
+                    { data: mtopsData, error: mtopErr },
+                    { data: appsData, error: appErr },
+                    { data: paysData, error: payErr },
+                    { data: profsData, error: profErr },
+                    { data: vehsData, error: vehsErr }
+                ] = await Promise.all([
+                    supabase.from('mtop_records').select('*').order('created_at', { ascending: false }),
+                    supabase.from('applications').select('*').order('submitted_at', { ascending: false }),
+                    supabase.from('payments').select('*').order('created_at', { ascending: false }),
+                    supabase.from('profiles').select('*'),
+                    supabase.from('vehicles').select('*')
+                ]);
+
+                if (mtopErr) throw mtopErr;
+                if (appErr) throw appErr;
+                if (payErr) throw payErr;
+                if (profErr) throw profErr;
+                if (vehsErr) throw vehsErr;
+
+                allMtops = mtopsData || [];
+                allApps = appsData || [];
+                allPayments = paysData || [];
+
+                profilesMap = {};
+                (profsData || []).forEach(p => { profilesMap[p.id] = p; });
+
+                vehiclesMap = {};
+                (vehsData || []).forEach(v => { vehiclesMap[v.id] = v; });
+
+                appsMap = {};
+                allApps.forEach(a => { appsMap[a.id] = a; });
+
+                populateBarangayFilter();
+                updateKpiCards();
+                applyMtopFilters();
+                applyAppFilters();
+                applyPayFilters();
+
+                if (refreshedLabel) {
+                    refreshedLabel.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US');
+                }
+            } catch (err) {
+                console.error('Report load error:', err);
+                alertBox.className = 'alert alert-danger no-print';
+                alertBox.innerText = 'Error loading LGU report data: ' + err.message;
+                alertBox.style.display = 'block';
+            } finally {
+                if      (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh Data';
+                }
+            }
+        }
+
+        function populateBarangayFilter() {
+            const brgySelect = document.getElementById('filterMtopBarangay');
+            const currentVal = brgySelect.value;
+            const brgySet = new Set();
+
+            Object.values(profilesMap).forEach(p => {
+                if (p.barangay && p.barangay.trim()) {
+                    brgySet.add(p.barangay.trim().toUpperCase());
+                }
+            });
+
+            const sortedBrgys = Array.from(brgySet).sort();
+            brgySelect.innerHTML = `<option value="ALL">All Barangays</option>` +
+                sortedBrgys.map(b => `<option value="${b}">${b}</option>`).join('');
+
+            if (sortedBrgys.includes(currentVal)) {
+                brgySelect.value = currentVal;
+            }
+        }
+
+        function updateKpiCards() {
+            const activeCount = allMtops.filter(m => (m.status || '').toUpperCase() === 'ACTIVE').length;
+            const renewedCount = allMtops.filter(m => (m.status || '').toUpperCase() === 'RENEWED').length;
+            const expiredCount = allMtops.filter(m => (m.status || '').toUpperCase() === 'EXPIRED').length;
+            const droppedCount = allMtops.filter(m => (m.status || '').toUpperCase() === 'DROPPED').length;
+
+            const terminal = ['APPROVED', 'REJECTED', 'CANCELLED', 'INSPECTION_FAILED'];
+            const inProcessCount = allApps.filter(a => !terminal.includes((a.current_status || '').toUpperCase())).length;
+
+            const totalRev = allPayments.reduce((sum, p) => {
+                const amt = Number(p.amount ?? p.amount_paid ?? p.total_amount ?? 0);
+                return sum + (isNaN(amt) ? 0 : amt);
+            }, 0);
+
+            document.getElementById('kpiActiveMtops').textContent = activeCount;
+            document.getElementById('kpiRenewedMtops').textContent = renewedCount;
+            document.getElementById('kpiExpiredMtops').textContent = expiredCount;
+            document.getElementById('kpiDroppedMtops').textContent = droppedCount;
+            document.getElementById('kpiInProcessApps').textContent = inProcessCount;
+            document.getElementById('kpiTotalRevenue').textContent = formatCurrency(totalRev);
+            document.getElementById('kpiReceiptCount').textContent = `${allPayments.length} O.R. issued`;
+        }
+
+        function applyMtopFilters() {
+            const q = document.getElementById('filterMtopSearch').value.trim().toLowerCase();
+            const statusFilter = document.getElementById('filterMtopStatus').value;
+            const brgyFilter = document.getElementById('filterMtopBarangay').value;
+
+            filteredMtops = allMtops.filter(m => {
+                const status = (m.status || '').toUpperCase();
+                if (statusFilter !== 'ALL' && status !== statusFilter) return false;
+
+                const prof = profilesMap[m.applicant_id] || {};
+                const brgy = (prof.barangay || '').trim().toUpperCase();
+                if (brgyFilter !== 'ALL' && brgy !== brgyFilter) return false;
+
+                if (q) {
+                    const v = vehiclesMap[m.vehicle_id] || {};
+                    const haystack = [
+                        m.mtop_number,
+                        getOperatorFullName(m.applicant_id),
+                        v.plate_number,
+                        v.make,
+                        v.model,
+                        prof.barangay
+                    ].join(' ').toLowerCase();
+                    if (!haystack.includes(q)) return false;
+                }
+                return true;
+            });
+
+            document.getElementById('mtopResultCount').textContent = `${filteredMtops.length} record(s)`;
+            const tbody = document.getElementById('mtopTableBody');
+
+            if (filteredMtops.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted">No MTOP franchise records match the selected filters.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filteredMtops.map(m => {
+                const prof = profilesMap[m.applicant_id] || {};
+                const v = vehiclesMap[m.vehicle_id] || {};
+                const st = (m.status || '').toUpperCase();
+
+                let badgeCls = 'bg-secondary';
+                if (st === 'ACTIVE') badgeCls = 'bg-success';
+                else if (st === 'RENEWED') badgeCls = 'bg-info text-dark';
+                else if (st === 'EXPIRED') badgeCls = 'bg-warning text-dark';
+                else if (st === 'DROPPED') badgeCls = 'bg-danger';
+
+                const addr = [prof.barangay ? `Brgy. ${prof.barangay}` : '', prof.address].filter(Boolean).join(', ') || 'Tayabas City';
+
+                return `
+                    <tr>
+                        <td class="fw-bold font-monospace">${m.mtop_number}</td>
+                        <td class="fw-semibold">${getOperatorFullName(m.applicant_id)}</td>
+                        <td class="small">${addr}</td>
+                        <td>
+                            <div class="fw-bold">${v.plate_number || 'N/A'}</div>
+                            <div class="small text-muted">${[v.make, v.model].filter(Boolean).join(' ')}</div>
+                        </td>
+                        <td class="small font-monospace">${[v.engine_number, v.chassis_number].filter(Boolean).join(' / ') || '—'}</td>
+                        <td class="small">${m.issue_date || '—'} to ${m.expiration_date || '—'}</td>
+                        <td><span class="badge ${badgeCls}">${st}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function applyAppFilters() {
+            const q = document.getElementById('filterAppSearch').value.trim().toLowerCase();
+            const typeFilter = document.getElementById('filterAppType').value;
+            const statusFilter = document.getElementById('filterAppStatus').value;
+            const dateFrom = document.getElementById('filterAppDateFrom').value;
+            const dateTo = document.getElementById('filterAppDateTo').value;
+
+            filteredApps = allApps.filter(a => {
+                const tx = (a.transaction_type || '').toUpperCase();
+                if (typeFilter !== 'ALL' && tx !== typeFilter) return false;
+
+                const st = (a.current_status || '').toUpperCase();
+                if (statusFilter !== 'ALL' && st !== statusFilter) return false;
+
+                const subDate = (a.submitted_at || a.created_at || '').slice(0, 10);
+                if (dateFrom && subDate && subDate < dateFrom) return false;
+                if (dateTo && subDate && subDate > dateTo) return false;
+
+                if (q) {
+                    const v = vehiclesMap[a.vehicle_id] || {};
+                    const haystack = [
+                        a.application_number,
+                        getOperatorFullName(a.applicant_id),
+                        v.plate_number,
+                        tx,
+                        st
+                    ].join(' ').toLowerCase();
+                    if (!haystack.includes(q)) return false;
+                }
+                return true;
+            });
+
+            document.getElementById('appResultCount').textContent = `${filteredApps.length} record(s)`;
+            const tbody = document.getElementById('appTableBody');
+
+            if (filteredApps.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted">No applications match the selected filters.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filteredApps.map(a => {
+                const v = vehiclesMap[a.vehicle_id] || {};
+                const badgeHtml = typeof getStatusBadge === 'function'
+                    ? getStatusBadge(a.current_status)
+                    : `<span class="badge bg-primary">${a.current_status}</span>`;
+                const formattedDt = typeof formatDate === 'function'
+                    ? formatDate(a.submitted_at || a.created_at)
+                    : (a.submitted_at || a.created_at || '').slice(0, 10);
+
+                return `
+                    <tr>
+                        <td class="fw-bold font-monospace">${a.application_number}</td>
+                        <td><span class="badge bg-light text-dark border">${a.transaction_type}</span></td>
+                        <td class="fw-semibold">${getOperatorFullName(a.applicant_id)}</td>
+                        <td>
+                            <div class="fw-bold">${v.plate_number || 'N/A'}</div>
+                            <div class="small text-muted">${[v.make, v.model].filter(Boolean).join(' ')}</div>
+                        </td>
+                        <td class="small">${formattedDt}</td>
+                        <td>${badgeHtml}</td>
+                        <td class="small text-muted">${a.remarks || '—'}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function applyPayFilters() {
+            const q = document.getElementById('filterPaySearch').value.trim().toLowerCase();
+            const dateFrom = document.getElementById('filterPayDateFrom').value;
+            const dateTo = document.getElementById('filterPayDateTo').value;
+
+            filteredPayments = allPayments.filter(p => {
+                const rawDate = (p.paid_at || p.payment_date || p.created_at || '').slice(0, 10);
+                if (dateFrom && rawDate && rawDate < dateFrom) return false;
+                if (dateTo && rawDate && rawDate > dateTo) return false;
+
+                if (q) {
+                    const app = appsMap[p.application_id] || {};
+                    const orNo = p.or_number || p.official_receipt_number || p.receipt_number || '';
+                    const payor = getOperatorFullName(app.applicant_id || p.applicant_id);
+                    const haystack = [orNo, app.application_number, payor, app.transaction_type].join(' ').toLowerCase();
+                    if (!haystack.includes(q)) return false;
+                }
+                return true;
+            });
+
+            let subtotal = 0;
+            const tbody = document.getElementById('payTableBody');
+
+            if (filteredPayments.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-muted">No Official Receipts match the selected filters.</td></tr>`;
+            } else {
+                tbody.innerHTML = filteredPayments.map(p => {
+                    const app = appsMap[p.application_id] || {};
+                    const orNo = p.or_number || p.official_receipt_number || p.receipt_number || '—';
+                    const amt = Number(p.amount ?? p.amount_paid ?? p.total_amount ?? 0);
+                    subtotal += isNaN(amt) ? 0 : amt;
+
+                    const paidDt = typeof formatDate === 'function'
+                        ? formatDate(p.paid_at || p.payment_date || p.created_at)
+                        : (p.paid_at || p.payment_date || p.created_at || '').slice(0, 10);
+
+                    return `
+                        <tr>
+                            <td class="fw-bold font-monospace">${orNo}</td>
+                            <td class="font-monospace">${app.application_number || '—'}</td>
+                            <td>${app.transaction_type || '—'}</td>
+                            <td class="fw-semibold">${getOperatorFullName(app.applicant_id || p.applicant_id)}</td>
+                            <td class="small">${paidDt}</td>
+                            <td class="text-end fw-bold text-success">${formatCurrency(amt)}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            document.getElementById('payResultCount').textContent = `${filteredPayments.length} O.R.(s)`;
+            document.getElementById('payFilteredTotal').textContent = `Total: ${formatCurrency(subtotal)}`;
+            document.getElementById('payFooterTotal').textContent = formatCurrency(subtotal);
+        }
+
+        function csvEscape(val) {
+            const s = String(val ?? '').replace(/"/g, '""');
+            return `"${s}"`;
+        }
+
+        function exportCurrentTabCsv() {
+            let headers = [];
+            let rows = [];
+            let filename = 'wtois_report.csv';
+
+            if (activeTab === 'franchise') {
+                filename = `tayabas_mtop_registry_${new Date().toISOString().slice(0, 10)}.csv`;
+                headers = ['MTOP Number', 'Operator Name', 'Barangay', 'Plate Number', 'Make/Model', 'Engine No', 'Chassis No', 'Issue Date', 'Expiration Date', 'Status'];
+                rows = filteredMtops.map(m => {
+                    const prof = profilesMap[m.applicant_id] || {};
+                    const v = vehiclesMap[m.vehicle_id] || {};
+                    return [
+                        m.mtop_number,
+                        getOperatorFullName(m.applicant_id),
+                        prof.barangay || '',
+                        v.plate_number || '',
+                        [v.make, v.model].filter(Boolean).join(' '),
+                        v.engine_number || '',
+                        v.chassis_number || '',
+                        m.issue_date || '',
+                        m.expiration_date || '',
+                        m.status || ''
+                    ];
+                });
+            } else if (activeTab === 'applications') {
+                filename = `tayabas_mtop_applications_${new Date().toISOString().slice(0, 10)}.csv`;
+                headers = ['Reference Number', 'Transaction Type', 'Operator Name', 'Plate Number', 'Submitted Date', 'Current Status', 'Remarks'];
+                rows = filteredApps.map(a => {
+                    const v = vehiclesMap[a.vehicle_id] || {};
+                    return [
+                        a.application_number,
+                        a.transaction_type,
+                        getOperatorFullName(a.applicant_id),
+                        v.plate_number || '',
+                        (a.submitted_at || a.created_at || '').slice(0, 10),
+                        a.current_status,
+                        a.remarks || ''
+                    ];
+                });
+            } else {
+                filename = `tayabas_cto_collections_${new Date().toISOString().slice(0, 10)}.csv`;
+                headers = ['OR Number', 'Application Ref', 'Transaction Type', 'Operator / Payor', 'Payment Date', 'Amount Paid'];
+                rows = filteredPayments.map(p => {
+                    const app = appsMap[p.application_id] || {};
+                    const orNo = p.or_number || p.official_receipt_number || p.receipt_number || '';
+                    const amt = Number(p.amount ?? p.amount_paid ?? p.total_amount ?? 0).toFixed(2);
+                    return [
+                        orNo,
+                        app.application_number || '',
+                        app.transaction_type || '',
+                        getOperatorFullName(app.applicant_id || p.applicant_id),
+                        (p.paid_at || p.payment_date || p.created_at || '').slice(0, 10),
+                        amt
+                    ];
+                });
+            }
+
+            const csvContent = [headers.map(csvEscape).join(','), ...rows.map(r => r.map(csvEscape).join(','))].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
+        function prepareAndPrint() {
+            const titles = {
+                franchise: 'OFFICIAL MTOP FRANCHISE REGISTRY MASTERLIST',
+                applications: 'MTOP APPLICATIONS PIPELINE & STATUS REPORT',
+                collections: 'CITY TREASURER\'S OFFICE (CTO) REVENUE & O.R. REPORT'
+            };
+            document.getElementById('printReportTitle').textContent = titles[activeTab] || 'LGU MTOP REPORT';
+            document.getElementById('printReportTimestamp').textContent = 'Generated on ' + new Date().toLocaleString('en-US');
+            window.print();
+        }
+    </script>
+</body>
+</html>
